@@ -1,0 +1,61 @@
+# DevMate files MCP server: read-only, sandboxed file tools over MCP Streamable HTTP (POST/GET /mcp).
+spring:
+  application:
+    name: devmate-files-mcp
+  threads:
+    virtual:
+      enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: ${DEVMATE_SHUTDOWN_TIMEOUT:20s}
+  ai:
+    mcp:
+      server:
+        name: devmate-files
+        version: "@project.version@"
+        type: sync
+        protocol: streamable
+        request-timeout: ${DEVMATE_FILES_MCP_REQUEST_TIMEOUT:30s}
+        instructions: >
+          Read-only access to source files under the configured allowed roots. Use search_code to locate code,
+          list_files to explore directories and read_file to inspect a file.
+        capabilities:      # tools only: smallest surface
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+
+server:
+  address: ${DEVMATE_FILES_MCP_ADDRESS:127.0.0.1}   # loopback by default; no auth until M13
+  port: ${DEVMATE_FILES_MCP_PORT:8091}
+  shutdown: graceful
+  error:
+    include-stacktrace: never
+    include-message: never
+
+devmate:
+  filesystem:
+    # Required. No default on purpose. Comma-separated via DEVMATE_FILESYSTEM_ALLOWED_ROOTS.
+    allowed-roots: ${DEVMATE_FILESYSTEM_ALLOWED_ROOTS:}
+  http:
+    # Browser origins allowed to call /mcp (e.g. MCP Inspector: http://localhost:6274). Empty = none.
+    allowed-origins: ${DEVMATE_HTTP_ALLOWED_ORIGINS:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    correlation: "[${spring.application.name:},%X{toolName:-}] "
+  level:
+    root: INFO
+    dev.devmate: INFO
