@@ -4,6 +4,7 @@ DevMate: personal AI developer assistant (MCP client + agent), built milestone b
 Do not start the next milestone without explicit instruction. Each milestone ends with `docs/milestones/M<n>.md`
 and the MILESTONE STATUS summary. The full brief and roadmap are in `PROMPT.md`.
 Treat it as the source of truth for scope.
+When a milestone completes, switch its ⚪ to 🔵 in `PROMPT.md` (roadmap + heading) and in the README Milestones table.
 
 ## Build
 

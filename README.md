@@ -5,6 +5,28 @@ systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through
 
 > Status: **M1 — Files MCP Server** is complete. No MCP client or LLM yet. See [`docs/milestones`](docs/milestones).
 
+## Milestones
+
+| | Milestone | Status |
+|---|---|---|
+| 🔵 | M0 — Foundation | [Done](docs/milestones/M0.md) |
+| 🔵 | M1 — Files MCP Server | [Done](docs/milestones/M1.md) |
+| ⚪ | M2 — MCP Client | Not started |
+| ⚪ | M3 — LLM Integration | Not started |
+| ⚪ | M4 — Git MCP | Not started |
+| ⚪ | M5 — Code Intelligence | Not started |
+| ⚪ | M6 — RAG | Not started |
+| ⚪ | M7 — Database MCP | Not started |
+| ⚪ | M8 — Kafka MCP | Not started |
+| ⚪ | M9 — OpenTelemetry MCP | Not started |
+| ⚪ | M10 — Redis MCP | Not started |
+| ⚪ | M11 — Kubernetes/OpenShift MCP | Not started |
+| ⚪ | M12 — Full Agentic Investigation | Not started |
+| ⚪ | M13 — Security & Human Approval | Not started |
+| ⚪ | M14 — Production Hardening | Not started |
+
+🔵 = completed · ⚪ = not started. Full plan: [PROMPT.md](PROMPT.md).
+
 ## Baseline
 
 | Component     | Version                     |

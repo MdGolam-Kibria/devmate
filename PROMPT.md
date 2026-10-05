@@ -266,22 +266,24 @@ Do not invent MCP protocol structures when an official SDK/API is available.
 Implement the project through these milestones:
 
 ```text
-M0   Foundation
-M1   Files MCP Server
-M2   MCP Client
-M3   LLM Integration
-M4   Git MCP
-M5   Code Intelligence
-M6   RAG
-M7   Database MCP
-M8   Kafka MCP
-M9   OpenTelemetry MCP
-M10  Redis MCP
-M11  Kubernetes/OpenShift MCP
-M12  Full Agentic Investigation
-M13  Security & Human Approval
-M14  Production Hardening
+🔵 M0   Foundation
+🔵 M1   Files MCP Server
+⚪ M2   MCP Client
+⚪ M3   LLM Integration
+⚪ M4   Git MCP
+⚪ M5   Code Intelligence
+⚪ M6   RAG
+⚪ M7   Database MCP
+⚪ M8   Kafka MCP
+⚪ M9   OpenTelemetry MCP
+⚪ M10  Redis MCP
+⚪ M11  Kubernetes/OpenShift MCP
+⚪ M12  Full Agentic Investigation
+⚪ M13  Security & Human Approval
+⚪ M14  Production Hardening
 ```
+
+> 🔵 = completed · ⚪ = not started
 
 IMPORTANT:
 
@@ -293,7 +295,7 @@ Each milestone must produce a usable artifact.
 
 ---
 
-# MILESTONE 0 — FOUNDATION
+# 🔵 MILESTONE 0 — FOUNDATION
 
 ## Goal
 
@@ -361,7 +363,7 @@ docs/milestones/M0.md
 
 ---
 
-# MILESTONE 1 — FILES MCP SERVER
+# 🔵 MILESTONE 1 — FILES MCP SERVER
 
 Create:
 
