@@ -3,7 +3,7 @@
 A personal AI developer assistant: an **MCP client + AI agent** that collects evidence from developer
 systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through MCP tools, then uses an LLM to analyse it.
 
-> Status: **Milestone 0 — Foundation** is complete. No MCP, LLM, or integrations yet. See [`docs/milestones`](docs/milestones).
+> Status: **M1 — Files MCP Server** is complete. No MCP client or LLM yet. See [`docs/milestones`](docs/milestones).
 
 ## Baseline
 
@@ -12,16 +12,19 @@ systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through
 | Java          | 25 LTS                      |
 | Spring Boot   | 4.1.1 (latest stable 4.1.x) |
 | Maven         | 3.9.11 (via `./mvnw`)       |
+| MCP Java SDK  | 2.0.1                       |
+| Spring AI     | 2.0.1 (MCP server starter)  |
 
-Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md).
+Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md), [ADR-0002](docs/decisions/ADR-0002-mcp-server-stack.md).
 
 ## Modules
 
 | Module           | Milestone | Purpose                                                    |
 |------------------|-----------|------------------------------------------------------------|
-| `devmate-client` | M0        | Spring Boot app. Will host the MCP client (M2) and agent (M3). |
+| `devmate-client`    | M0 | Spring Boot app. Will host the MCP client (M2) and agent (M3). |
+| `devmate-files-mcp` | M1 | MCP server (Streamable HTTP, `:8091/mcp`): `list_files`, `read_file`, `search_code`, sandboxed and read-only |
 
-Each future module (`devmate-files-mcp`, `devmate-git-mcp`, …) is added when its milestone starts.
+Each future module (`devmate-git-mcp`, …) is added when its milestone starts.
 
 ## Build & run
 
@@ -30,7 +33,12 @@ export JAVA_HOME=/path/to/jdk-25        # build fails fast (enforcer) on an olde
 ./mvnw clean verify                     # unit (*Test, surefire) + integration (*IT, failsafe)
 java -jar devmate-client/target/devmate-client-*.jar
 curl localhost:8080/actuator/health     # {"groups":["liveness","readiness"],"status":"UP"}
+
+# Files MCP server: refuses to start without allowed roots
+DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/workspace/projects java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar
 ```
+
+Files MCP configuration (`devmate.filesystem.*`, limits, security controls): [M1](docs/milestones/M1.md).
 
 ## Configuration
 
