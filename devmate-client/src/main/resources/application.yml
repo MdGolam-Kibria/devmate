@@ -1,0 +1,40 @@
+# DevMate client: base configuration. Environment-specific values come from
+# application-{profile}.yml or environment variables (e.g. SERVER_PORT, DEVMATE_*).
+spring:
+  application:
+    name: devmate-client
+  threads:
+    virtual:
+      enabled: true          # Java 25 virtual threads for request handling
+  lifecycle:
+    timeout-per-shutdown-phase: ${DEVMATE_SHUTDOWN_TIMEOUT:20s}
+
+server:
+  port: ${DEVMATE_PORT:8080}
+  shutdown: graceful
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info   # deny-by-default: nothing else is exposed
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true          # /actuator/health/liveness and /readiness
+  info:
+    env:
+      enabled: false
+    java:
+      enabled: true
+
+logging:
+  pattern:
+    correlation: "[${spring.application.name:},%X{requestId:-}] "
+  level:
+    root: INFO
+    dev.devmate: INFO

@@ -1,0 +1,9 @@
+# Local development: verbose DevMate logs and health details for debugging.
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    dev.devmate: DEBUG

@@ -1,0 +1,6 @@
+# Structured (ECS JSON) console logs for containers / log shippers.
+# MDC values (requestId, later traceId/spanId/toolName) are emitted as JSON fields.
+logging:
+  structured:
+    format:
+      console: ecs
