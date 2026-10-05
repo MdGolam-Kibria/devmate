@@ -52,6 +52,7 @@ class FilesMcpServerIT {
     @DynamicPropertySource
     static void sandbox(DynamicPropertyRegistry registry) {
         registry.add("devmate.filesystem.allowed-roots", () -> WS.root().toString());
+        registry.add("devmate.filesystem.allow-client-roots", () -> "false");
         registry.add("devmate.filesystem.max-file-size", () -> TestWorkspace.MAX_FILE_SIZE.toBytes() + "B");
         registry.add("devmate.http.allowed-origins", () -> "http://localhost:6274");
     }
@@ -98,6 +99,27 @@ class FilesMcpServerIT {
                 .containsOnlyKeys("query", "path", "glob");
         assertThat(search.inputSchema().get("required")).asInstanceOf(InstanceOfAssertFactories.LIST)
                 .containsExactly("query");
+    }
+
+    @Test
+    void clientRootsAreIgnoredWhenDisabled() {
+        var transport = HttpClientStreamableHttpTransport.builder("http://localhost:" + port).endpoint("/mcp").build();
+        McpSyncClient withRoots = McpClient.sync(transport)
+                .clientInfo(McpSchema.Implementation.builder("roots-off-it", "test").build())
+                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
+                .roots(new McpSchema.Root(WS.outside().toUri().toString(), "outside"))
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+        try {
+            withRoots.initialize();
+            CallToolResult read = withRoots.callTool(new McpSchema.CallToolRequest("read_file",
+                    Map.of("path", WS.outside().resolve("secret.txt").toString())));
+            assertThat(read.isError()).isTrue();
+            assertThat(((TextContent) read.content().getFirst()).text())
+                    .isEqualTo("ACCESS_DENIED: path is outside the allowed roots");
+        } finally {
+            withRoots.closeGracefully();
+        }
     }
 
     @Test

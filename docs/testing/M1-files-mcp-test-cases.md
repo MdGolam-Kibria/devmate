@@ -8,7 +8,7 @@ Acceptance cases that prove `devmate-files-mcp` works end to end, run against th
 KEEP=1 ./scripts/check-files-mcp.sh   # same, then leave the server running for manual exploration
 ```
 
-Last run: **2026-10-05, 35/35 PASS** (JDK 25.0.3, Linux).
+Last run: **2026-10-05, 36/36 PASS** (JDK 25.0.4, Linux).
 Negative check: with `DEVMATE_FILES_MCP_ADDRESS=0.0.0.0` the script correctly **fails** TC-03 and TC-33.
 
 ## Fixture
@@ -37,7 +37,8 @@ outside/secret.txt                      ← must never be readable
 
 | ID | Case | Steps | Expected |
 |---|---|---|---|
-| TC-01 | No roots configured | Start with `DEVMATE_FILESYSTEM_ALLOWED_ROOTS=""` | Exits non-zero; log says `set devmate.filesystem.allowed-roots` |
+| TC-01 | No roots, client roots off | Start with `DEVMATE_FILESYSTEM_ALLOWED_ROOTS=""`, `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false` | Exits non-zero; log says `set devmate.filesystem.allowed-roots` |
+| TC-36 | No roots, default settings (as from the IDE) | Start with `DEVMATE_FILESYSTEM_ALLOWED_ROOTS=""` only; `list_files {}`, `read_file` an absolute path | Starts (log warns `allow-client-roots=true`); `entries` empty; `ACCESS_DENIED: path is outside the allowed roots` until a client declares the folder as a root |
 | TC-02 | Server starts | Start with root = `project/` | `GET /actuator/health` → `{"status":"UP"}` |
 | TC-03 | Loopback only | `ss -ltn` | Listening on `127.0.0.1:<port>`, not `0.0.0.0`/`*` |
 

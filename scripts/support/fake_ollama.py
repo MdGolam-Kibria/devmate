@@ -9,6 +9,14 @@ Reply chosen from the last user message:
   contains "FAIL"      -> HTTP 500 (provider error)
   anything else        -> "Echo: <message>"
 
+Tool calling (only when DevMate sent tool definitions, i.e. a folder is open). Keyword in the last user message:
+  "SEARCH <text>"      -> calls search_code {"query": text}
+  "READ <path>"        -> calls read_file {"path": path}
+  "LIST"               -> calls list_files {}
+  "LOOP"               -> calls list_files on every round (DevMate must stop it)
+  "SYSTEM"             -> replies with the system prompt it received
+Once tool results are in the conversation it replies "From the tools:" followed by each result (first 600 chars).
+
 GET /__count returns how many /api/chat calls were received (to prove a message was NOT sent to the model).
 GET /__last returns the last /api/chat request body (for debugging the request format).
 
@@ -86,6 +94,10 @@ class Handler(BaseHTTPRequestHandler):
             last_request = request
         user = next((m.get("content", "") for m in reversed(request.get("messages", []))
                      if m.get("role") == "user"), "")
+        tool_reply = self._tool_step(request, user)
+        if tool_reply is not None:
+            self._json(200, tool_reply)
+            return
         if "FAIL" in user:
             self._json(500, {"error": "fake model crashed"})
             return
@@ -105,6 +117,49 @@ class Handler(BaseHTTPRequestHandler):
             "prompt_eval_count": 12,
             "eval_count": 7,
         })
+
+
+    def _tool_step(self, request, user):
+        """A tool-calling reply, or None to fall through to the plain replies."""
+        if not request.get("tools"):
+            return None
+        messages = request.get("messages", [])
+        last_user = max(i for i, m in enumerate(messages) if m.get("role") == "user")
+        results = [m.get("content", "") for m in messages[last_user + 1:] if m.get("role") == "tool"]
+        words = user.split()
+        call = None
+        if "LOOP" in user:
+            call = ("list_files", {})
+        elif not results and "SEARCH" in words and words.index("SEARCH") + 1 < len(words):
+            call = ("search_code", {"query": words[words.index("SEARCH") + 1]})
+        elif not results and "READ" in words and words.index("READ") + 1 < len(words):
+            call = ("read_file", {"path": words[words.index("READ") + 1]})
+        elif not results and "LIST" in words:
+            call = ("list_files", {})
+        elif "SYSTEM" in user:
+            system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+            return self._reply(request, "System prompt was: " + system)
+        if call:
+            return self._reply(request, "", [{"function": {"name": call[0], "arguments": call[1]}}])
+        if results:
+            return self._reply(request, "From the tools:\n\n" + "\n\n".join(r[:600] for r in results))
+        return None
+
+    @staticmethod
+    def _reply(request, content, tool_calls=None):
+        message = {"role": "assistant", "content": content}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return {
+            "model": request.get("model", "fake-model"),
+            "created_at": "2026-10-05T00:00:00Z",
+            "message": message,
+            "done": True,
+            "done_reason": "stop",
+            "total_duration": 1000000,
+            "prompt_eval_count": 12,
+            "eval_count": 7,
+        }
 
 
 if __name__ == "__main__":

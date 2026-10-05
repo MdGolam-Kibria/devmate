@@ -1,0 +1,193 @@
+package dev.devmate.client.folder;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import dev.devmate.client.llm.LlmClient;
+import dev.devmate.client.llm.LlmRequest;
+import dev.devmate.client.llm.LlmResponse;
+import dev.devmate.client.llm.LlmTool;
+import dev.devmate.client.mcp.McpTool;
+import dev.devmate.client.mcp.McpToolClient;
+import dev.devmate.client.mcp.McpToolResult;
+import dev.devmate.client.mcp.McpUnavailableException;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.json.JsonMapper;
+
+class FolderAssistantTest {
+
+    private static final String FOLDER = "/work/project";
+    private static final String LISTING = """
+            {"path":"/work/project","entries":[
+              {"name":"src","path":"/work/project/src","type":"DIRECTORY","size":0},
+              {"name":"pom.xml","path":"/work/project/pom.xml","type":"FILE","size":10}],"truncated":false}""";
+    private static final Map<String, Object> PATH_SCHEMA =
+            Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")));
+
+    private final McpToolClient mcp = mock(McpToolClient.class);
+    private final LlmClient llm = mock(LlmClient.class);
+    private final FolderAssistant assistant =
+            new FolderAssistant(mcp, llm, new AgentProperties(5, 20, 60), JsonMapper.builder().build());
+
+    @BeforeEach
+    void folderExists() {
+        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(new McpToolResult(LISTING, false));
+        when(llm.chat(any())).thenReturn(new LlmResponse("answer", "m", 1, 1));
+    }
+
+    @Test
+    void openReturnsTheServersRealPathAndEntries() {
+        FolderSnapshot snapshot = assistant.open("  " + FOLDER + "  ");
+
+        assertThat(snapshot).isEqualTo(new FolderSnapshot(FOLDER, List.of("src/", "pom.xml"), false));
+    }
+
+    @Test
+    void openPassesTheServersRefusalThrough() {
+        when(mcp.callTool("list_files", Map.of("path", "/etc")))
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+
+        assertThatThrownBy(() -> assistant.open("/etc"))
+                .isInstanceOf(FolderException.class).hasMessage("ACCESS_DENIED: path is outside the allowed roots");
+    }
+
+    @Test
+    void openRejectsBlankAndRelativePathsWithoutCallingTheServer() {
+        assertThatThrownBy(() -> assistant.open(" ")).hasMessageStartingWith("INVALID_ARGUMENT: enter the absolute");
+        assertThatThrownBy(() -> assistant.open("project")).hasMessageStartingWith("INVALID_ARGUMENT: enter an absolute");
+        verify(mcp, never()).callTool(any(), anyMap());
+    }
+
+    @Test
+    void allowDeclaresTheFolderAsARootAndOpensIt() {
+        assertThat(assistant.allow(FOLDER).path()).isEqualTo(FOLDER);
+
+        var order = inOrder(mcp);
+        order.verify(mcp).approveRoot(Path.of(FOLDER));
+        order.verify(mcp).callTool("list_files", Map.of("path", FOLDER));
+        verify(mcp, never()).revokeRoot(any());
+    }
+
+    @Test
+    void allowNotAcceptedByTheServerIsRevokedAndExplained() {
+        when(mcp.callTool("list_files", Map.of("path", "/other")))
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+
+        assertThatThrownBy(() -> assistant.allow("/other"))
+                .isInstanceOf(FolderException.class)
+                .hasMessageContaining("did not accept the approval")
+                .hasMessageContaining("DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true");
+        verify(mcp).revokeRoot(Path.of("/other"));
+    }
+
+    @Test
+    void allowRejectsRelativePathsWithoutApproving() {
+        assertThatThrownBy(() -> assistant.allow("other")).hasMessageStartingWith("INVALID_ARGUMENT");
+        verify(mcp, never()).approveRoot(any());
+    }
+
+    @Test
+    void onlyTheOutsideRootsRefusalCanBeApproved() {
+        assertThat(FolderAssistant.isOutsideAllowedRoots(
+                new FolderException("ACCESS_DENIED: path is outside the allowed roots"))).isTrue();
+        assertThat(FolderAssistant.isOutsideAllowedRoots(
+                new FolderException("ACCESS_DENIED: path is excluded by policy: /x/.git"))).isFalse();
+        assertThat(FolderAssistant.isOutsideAllowedRoots(new FolderException("NOT_FOUND: /x"))).isFalse();
+    }
+
+    @Test
+    void rootsComeFromListFilesWithoutPath() {
+        when(mcp.callTool("list_files", Map.of())).thenReturn(new McpToolResult(
+                "{\"path\":null,\"entries\":[{\"name\":\"/a\",\"path\":\"/a\",\"type\":\"DIRECTORY\",\"size\":0}]}",
+                false));
+
+        assertThat(assistant.roots()).containsExactly("/a");
+    }
+
+    @Test
+    void offersOnlyReadOnlyToolsThatTakeAPath() {
+        when(mcp.listTools()).thenReturn(List.of(
+                new McpTool("read_file", "Read a file.", PATH_SCHEMA, true),
+                new McpTool("delete_file", "Delete a file.", PATH_SCHEMA, false),
+                new McpTool("server_time", "Time.", Map.of("type", "object"), true)));
+
+        assistant.ask(FOLDER, "What is in pom.xml?");
+
+        LlmRequest request = sentRequest();
+        assertThat(request.tools()).extracting(LlmTool::name).containsExactly("read_file");
+        assertThat(request.tools().getFirst().description()).startsWith("Read a file.")
+                .contains("relative to the selected folder");
+        assertThat(request.tools().getFirst().inputSchema()).contains("\"path\"");
+        assertThat(request.maxToolRounds()).isEqualTo(5);
+        assertThat(request.userMessage()).isEqualTo("What is in pom.xml?");
+        assertThat(request.systemPrompt()).contains(FOLDER, "- src/", "- pom.xml");
+    }
+
+    @Test
+    void toolCallsArePinnedToTheFolder() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(new McpToolResult("content", false));
+        assistant.ask(FOLDER, "q");
+        LlmTool tool = sentRequest().tools().getFirst();
+
+        assertThat(tool.handler().apply("{\"path\":\"src/A.java\"}")).isEqualTo(LlmTool.Output.ok("content"));
+        verify(mcp).callTool("read_file", Map.of("path", "/work/project/src/A.java"));
+
+        assertThat(tool.handler().apply("{\"path\":\"../other/secret\"}").text())
+                .startsWith("ACCESS_DENIED: path is outside the selected folder");
+        verify(mcp, never()).callTool("read_file", Map.of("path", "/work/other/secret"));
+
+        assertThat(tool.handler().apply("not json")).isEqualTo(
+                LlmTool.Output.error("INVALID_ARGUMENT: arguments must be a JSON object"));
+    }
+
+    @Test
+    void longToolOutputIsCutOff() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(new McpToolResult("x".repeat(50), false));
+        assistant.ask(FOLDER, "q");
+
+        String text = sentRequest().tools().getFirst().handler().apply("{}").text();
+
+        assertThat(text).startsWith("x".repeat(20) + "\n…[output cut off by DevMate after 20 characters]");
+    }
+
+    @Test
+    void toolErrorsFromTheServerReachTheModelAsErrors() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("read_file"), anyMap()))
+                .thenReturn(new McpToolResult("ACCESS_DENIED: .env", true));
+        assistant.ask(FOLDER, "q");
+
+        assertThat(sentRequest().tools().getFirst().handler().apply("{\"path\":\".env\"}"))
+                .isEqualTo(LlmTool.Output.error("ACCESS_DENIED: .env"));
+    }
+
+    @Test
+    void serverOutageAbortsTheAnswer() {
+        when(mcp.callTool("list_files", Map.of("path", FOLDER)))
+                .thenThrow(new McpUnavailableException("Files MCP server is not reachable", null));
+
+        assertThatThrownBy(() -> assistant.ask(FOLDER, "q")).isInstanceOf(McpUnavailableException.class);
+        verify(llm, never()).chat(any());
+    }
+
+    private LlmRequest sentRequest() {
+        var request = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(llm).chat(request.capture());
+        return request.getValue();
+    }
+}

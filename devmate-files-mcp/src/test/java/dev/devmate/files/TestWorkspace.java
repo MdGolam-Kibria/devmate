@@ -61,7 +61,7 @@ public record TestWorkspace(Path root, Path outside) {
 
     public FilesProperties properties() {
         return new FilesProperties(List.of(root), MAX_FILE_SIZE, 1000, 200, 20_000, 240,
-                List.of(".git", "target"), List.of(".env", ".env.*", "*.pem", "*.key"));
+                List.of(".git", "target"), List.of(".env", ".env.*", "*.pem", "*.key"), false);
     }
 
     private static void write(Path file, String content) throws IOException {

@@ -16,13 +16,17 @@ User ──► DevMate Agent ──► LLM (tool selection)
 MCP is the protocol boundary between the agent and every external system. The client finds tools at runtime
 (`initialize` → `tools/list`) and never hardcodes them. The LLM receives the discovered tool definitions.
 
-## Current state (M1)
+## Current state (M1 + LLM, UI and folder Q&A slices)
 
 ```text
 devmate/                       parent POM: Java 25, Boot 4.1.1, enforcer, test plugins
 ├── devmate-client/            Spring Boot (Web MVC on virtual threads) + Actuator
 │   └── dev.devmate.client
 │       ├── DevMateClientApplication
+│       ├── llm/                  LlmClient port (+ LlmTool) → SpringAiLlmClient (runs the tool loop)
+│       ├── mcp/McpToolClient     SDK client, Streamable HTTP to the files MCP server (lazy, reconnects)
+│       ├── folder/               FolderAssistant (MCP tools → LlmTools), FolderScope (path pinned to folder)
+│       ├── ui/                   Thymeleaf chat page, folder bar, session history + selected folder
 │       └── web/RequestIdFilter   correlation id → response header + MDC
 └── devmate-files-mcp/         MCP server, Streamable HTTP :8091/mcp (ADR-0002)
     └── dev.devmate.files

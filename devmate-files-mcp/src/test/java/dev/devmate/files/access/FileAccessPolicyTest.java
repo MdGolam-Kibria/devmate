@@ -94,9 +94,56 @@ class FileAccessPolicyTest {
     }
 
     @Test
+    void additionalRootsWidenOnlyTheReturnedPolicy() throws Exception {
+        Path secret = ws.outside().resolve("secret.txt");
+        FileAccessPolicy widened = policy.withAdditionalRoots(List.of(ws.outside()));
+
+        assertThat(widened.resolve(secret.toString())).isEqualTo(secret.toRealPath());
+        assertThat(widened.roots()).containsExactly(ws.root().toRealPath(), ws.outside().toRealPath());
+        assertThat(widened.resolve("README.md")).isEqualTo(ws.root().resolve("README.md"));  // still the first root
+        assertThatThrownBy(() -> policy.resolve(secret.toString()))
+                .hasMessage("ACCESS_DENIED: path is outside the allowed roots");
+    }
+
+    @Test
+    void additionalRootsKeepTheDenyLists() throws Exception {
+        Files.writeString(ws.outside().resolve(".env"), "TOKEN=x");
+        Files.createDirectories(ws.outside().resolve(".git"));
+        FileAccessPolicy widened = policy.withAdditionalRoots(List.of(ws.outside()));
+
+        assertThatThrownBy(() -> widened.resolve(ws.outside().resolve(".env").toString()))
+                .hasMessageStartingWith("ACCESS_DENIED: path is excluded by policy");
+        assertThatThrownBy(() -> widened.resolve(ws.outside().resolve(".git").toString()))
+                .hasMessageStartingWith("ACCESS_DENIED: path is excluded by policy");
+    }
+
+    @Test
+    void missingFileOrDuplicateAdditionalRootsAreIgnored() {
+        assertThat(policy.withAdditionalRoots(List.of(tmp.resolve("missing"), ws.root().resolve("README.md"),
+                ws.root()))).isSameAs(policy);
+    }
+
+    @Test
+    void withNoConfiguredRootsEverythingIsOutsideUntilAClientRootIsAdded() throws Exception {
+        var props = new FilesProperties(List.of(), DataSize.ofKilobytes(1), 1, 1, 1, 1, List.of(), List.of(), true);
+        var empty = new FileAccessPolicy(props);
+        Path readme = ws.root().resolve("README.md");
+
+        assertThat(empty.roots()).isEmpty();
+        assertThatThrownBy(() -> empty.resolve("README.md"))
+                .hasMessage("ACCESS_DENIED: path is outside the allowed roots");
+        assertThatThrownBy(() -> empty.resolve(readme.toString()))
+                .hasMessage("ACCESS_DENIED: path is outside the allowed roots");
+
+        FileAccessPolicy approved = empty.withAdditionalRoots(List.of(ws.root()));
+        assertThat(approved.resolve(readme.toString())).isEqualTo(readme);
+        assertThat(approved.resolve("README.md")).isEqualTo(readme);
+    }
+
+    @Test
     void failsFastWhenRootDoesNotExist() {
         var props = new FilesProperties(List.of(tmp.resolve("missing")), DataSize.ofKilobytes(1), 1, 1, 1, 1,
-                List.of(), List.of());
+                List.of(), List.of(), false);
         assertThatThrownBy(() -> new FileAccessPolicy(props))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not exist");
@@ -105,7 +152,7 @@ class FileAccessPolicyTest {
     @Test
     void failsFastWhenRootIsAFile() {
         var props = new FilesProperties(List.of(ws.root().resolve("README.md")), DataSize.ofKilobytes(1), 1, 1, 1,
-                1, List.of(), List.of());
+                1, List.of(), List.of(), false);
         assertThatThrownBy(() -> new FileAccessPolicy(props))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not a directory");

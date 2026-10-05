@@ -47,7 +47,7 @@ public class FileService {
             .comparing((FileEntry e) -> e.type() != FileEntry.Type.DIRECTORY)
             .thenComparing(FileEntry::name, String.CASE_INSENSITIVE_ORDER);
 
-    private final FileAccessPolicy policy;
+    private final FileAccessPolicy policy;  // the configured roots only
     private final FilesProperties properties;
 
     public FileService(FileAccessPolicy policy, FilesProperties properties) {
@@ -57,6 +57,11 @@ public class FileService {
 
     /** Lists a directory, or the allowed roots when {@code path} is blank. */
     public ListFilesResult listFiles(String path) {
+        return listFiles(path, policy);
+    }
+
+    /** {@link #listFiles(String)} under the given policy (configured roots plus client roots). */
+    public ListFilesResult listFiles(String path, FileAccessPolicy policy) {
         if (path == null || path.isBlank()) {
             var rootEntries = policy.roots().stream()
                     .map(root -> new FileEntry(root.toString(), root.toString(), FileEntry.Type.DIRECTORY, 0))
@@ -90,6 +95,11 @@ public class FileService {
 
     /** Returns a whole text file, subject to the size limit. */
     public ReadFileResult readFile(String path) {
+        return readFile(path, policy);
+    }
+
+    /** {@link #readFile(String)} under the given policy. */
+    public ReadFileResult readFile(String path, FileAccessPolicy policy) {
         Path file = policy.resolve(path);
         if (!Files.isRegularFile(file)) {
             throw new FileAccessException(NOT_A_FILE, path);
@@ -111,6 +121,11 @@ public class FileService {
      * @param glob optional file-name glob such as {@code *.java}
      */
     public SearchCodeResult searchCode(String query, String path, String glob) {
+        return searchCode(query, path, glob, policy);
+    }
+
+    /** {@link #searchCode(String, String, String)} under the given policy. */
+    public SearchCodeResult searchCode(String query, String path, String glob, FileAccessPolicy policy) {
         if (query == null || query.isBlank()) {
             throw new FileAccessException(INVALID_ARGUMENT, "query must not be blank");
         }
@@ -118,7 +133,7 @@ public class FileService {
             throw new FileAccessException(INVALID_ARGUMENT, "query longer than " + MAX_QUERY_LENGTH + " characters");
         }
         List<Path> starts = path == null || path.isBlank() ? policy.roots() : List.of(policy.resolve(path));
-        var search = new Search(query.toLowerCase(Locale.ROOT), fileNameMatcher(glob));
+        var search = new Search(query.toLowerCase(Locale.ROOT), fileNameMatcher(glob), policy);
         for (Path start : starts) {
             if (search.stopped()) {
                 break;
@@ -148,14 +163,16 @@ public class FileService {
 
         private final String needle;
         private final Optional<PathMatcher> fileNameMatcher;
+        private final FileAccessPolicy policy;
         private final List<SearchMatch> matches = new ArrayList<>();
         private final Set<Path> visited = new HashSet<>();
         private int filesScanned;
         private boolean truncated;
 
-        Search(String needle, Optional<PathMatcher> fileNameMatcher) {
+        Search(String needle, Optional<PathMatcher> fileNameMatcher, FileAccessPolicy policy) {
             this.needle = needle;
             this.fileNameMatcher = fileNameMatcher;
+            this.policy = policy;
         }
 
         boolean stopped() {

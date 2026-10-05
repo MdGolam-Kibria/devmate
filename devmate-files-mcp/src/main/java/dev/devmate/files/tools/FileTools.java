@@ -1,5 +1,6 @@
 package dev.devmate.files.tools;
 
+import dev.devmate.files.access.ClientRoots;
 import dev.devmate.files.access.FileAccessException;
 import dev.devmate.files.service.FileService;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -10,6 +11,7 @@ import org.slf4j.MDC;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpTool.McpAnnotations;
 import org.springframework.ai.mcp.annotation.McpToolParam;
+import org.springframework.ai.mcp.annotation.context.McpSyncRequestContext;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -18,6 +20,8 @@ import tools.jackson.databind.json.JsonMapper;
  * {@link FileService}. Results are built here rather than by the framework so the wire format is ours: success is
  * one JSON text block; failure is {@code isError=true} with a single {@code REASON: detail} line (see
  * {@link FileAccessException}). Unexpected failures never leak their message.
+ *
+ * <p>Each call runs under {@link ClientRoots#policyFor}: the configured roots, plus the client's roots if enabled.
  */
 @Component
 public class FileTools {
@@ -25,10 +29,12 @@ public class FileTools {
     private static final Logger log = LoggerFactory.getLogger(FileTools.class);
 
     private final FileService files;
+    private final ClientRoots clientRoots;
     private final JsonMapper json;
 
-    public FileTools(FileService files, JsonMapper json) {
+    public FileTools(FileService files, ClientRoots clientRoots, JsonMapper json) {
         this.files = files;
+        this.clientRoots = clientRoots;
         this.json = json;
     }
 
@@ -39,10 +45,11 @@ public class FileTools {
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true,
                     openWorldHint = false))
     public CallToolResult listFiles(
+            McpSyncRequestContext context,
             @McpToolParam(required = false,
                     description = "Absolute path, or a path relative to the first allowed root. Omit to list the roots.")
             String path) {
-        return observe("list_files", () -> files.listFiles(path));
+        return observe("list_files", () -> files.listFiles(path, clientRoots.policyFor(context)));
     }
 
     @McpTool(name = "read_file",
@@ -50,9 +57,10 @@ public class FileTools {
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true,
                     openWorldHint = false))
     public CallToolResult readFile(
+            McpSyncRequestContext context,
             @McpToolParam(description = "Absolute path, or a path relative to the first allowed root.")
             String path) {
-        return observe("read_file", () -> files.readFile(path));
+        return observe("read_file", () -> files.readFile(path, clientRoots.policyFor(context)));
     }
 
     @McpTool(name = "search_code",
@@ -63,12 +71,13 @@ public class FileTools {
             annotations = @McpAnnotations(readOnlyHint = true, destructiveHint = false, idempotentHint = true,
                     openWorldHint = false))
     public CallToolResult searchCode(
+            McpSyncRequestContext context,
             @McpToolParam(description = "Literal text to find, e.g. KafkaTemplate") String query,
             @McpToolParam(required = false, description = "Directory or file to search in. Omit to search all roots.")
             String path,
             @McpToolParam(required = false, description = "File-name glob filter, e.g. *.java or *.{yml,yaml}")
             String glob) {
-        return observe("search_code", () -> files.searchCode(query, path, glob));
+        return observe("search_code", () -> files.searchCode(query, path, glob, clientRoots.policyFor(context)));
     }
 
     /** Runs a tool, logging name, outcome and latency (never arguments or content). */

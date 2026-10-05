@@ -24,10 +24,121 @@
         </form>
     </header>
 
+    <section class="folder-bar" aria-label="Folder">
+        <th:block th:if="${folder != null}">
+            <span class="folder-icon" aria-hidden="true">📁</span>
+            <code class="folder-path" id="folder-path" th:text="${folder}">/home/me/project</code>
+            <span class="folder-meta" th:text="|${folderEntryCount} ${folderEntryCount == 1 ? 'entry' : 'entries'} · questions use its files|">12 entries</span>
+            <a class="ghost small" th:href="@{/folder}">Change</a>
+            <form th:action="@{/folder/close}" method="post">
+                <button type="submit" class="ghost small">Close folder</button>
+            </form>
+        </th:block>
+        <th:block th:if="${folder == null and picking == null}">
+            <span class="folder-meta">No folder open: plain chat.</span>
+            <a class="ghost small" id="open-folder" th:href="@{/folder}">📁 Open a folder</a>
+        </th:block>
+        <div th:if="${picking != null}" class="folder-picker" id="folder-picker">
+            <div class="picker-head">
+                <span class="picker-title">Choose a folder to ask about</span>
+                <a class="ghost small" th:href="@{/}">Cancel</a>
+            </div>
+            <th:block th:if="${browser != null}">
+                <nav class="crumbs" aria-label="Current folder" id="crumbs">
+                    <th:block th:each="crumb, it : ${browser.crumbs()}">
+                        <span class="crumb-sep" th:if="${!it.first and it.index > 1}" aria-hidden="true">/</span>
+                        <a class="crumb" th:href="@{/folder(browse=${crumb.path()})}" th:text="${crumb.name()}"
+                           th:attr="aria-current=${it.last} ? 'location' : null">dir</a>
+                    </th:block>
+                </nav>
+                <ul class="dir-list" id="dir-list">
+                    <li th:if="${browser.parent() != null}">
+                        <a class="dir up" id="dir-up" th:href="@{/folder(browse=${browser.parent()})}">⬆ <span>..</span></a>
+                    </li>
+                    <li th:each="dir : ${browser.folders()}">
+                        <a class="dir" th:href="@{/folder(browse=${dir.path()})}" th:title="|Show folders in ${dir.path()}|">
+                            📁 <span th:text="${dir.name()}">src</span></a>
+                        <form th:action="@{/folder}" method="post">
+                            <button type="submit" class="ghost small open-dir" name="path" th:value="${dir.path()}"
+                                    th:title="|Open ${dir.path()}|">Open</button>
+                        </form>
+                    </li>
+                    <li class="folder-meta empty-dir" th:if="${browser.folders().isEmpty()}">No subfolders here.</li>
+                </ul>
+                <p class="folder-meta" th:if="${browser.truncated()}"
+                   th:text="|Showing the first ${browser.folders().size()} folders.|">Showing the first 500 folders.</p>
+                <div class="picker-actions">
+                    <form th:action="@{/folder}" method="post">
+                        <input type="hidden" name="path" th:value="${browser.path()}">
+                        <button type="submit" class="primary small" id="open-current">Open this folder</button>
+                    </form>
+                    <code class="folder-path" id="browse-path" th:text="${browser.path()}">/home/me</code>
+                </div>
+            </th:block>
+            <p class="form-error" th:if="${browseError}" th:text="${browseError}" role="alert" id="browse-error">error</p>
+            <p class="form-error" th:if="${folderError}" th:text="${folderError}" role="alert">error</p>
+            <p class="form-error" th:if="${mcpError}" th:text="${mcpError}" role="alert">error</p>
+            <details class="type-path" th:open="${browser == null}">
+                <summary>Type a path instead</summary>
+                <form th:action="@{/folder}" method="post" class="folder-row">
+                    <label for="folder-input" class="visually-hidden">Folder to ask about (absolute path)</label>
+                    <input id="folder-input" name="path" type="text" required maxlength="4096"
+                           autocomplete="off" spellcheck="false" placeholder="/home/me/projects/my-service"
+                           th:value="${folderDraft != null} ? ${folderDraft} : ${folder}">
+                    <button type="submit" class="primary small">Open</button>
+                </form>
+            </details>
+        </div>
+        <div class="modal-backdrop" th:if="${approvePath != null}">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="approve-title" id="approve-dialog">
+                <h2 id="approve-title">Allow DevMate to read this folder?</h2>
+                <code class="folder-path" th:text="${approvePath}">/home/me/other</code>
+                <p>It is outside the folders the files MCP server allows. If you allow it:</p>
+                <ul>
+                    <li>DevMate can <strong>read and search</strong> the files in it (never change them).</li>
+                    <li>Secrets (<code>.env</code>, keys) and <code>.git</code>, <code>target</code> stay hidden.</li>
+                    <li th:text="${provider == 'ollama'} ? 'What it reads stays on this machine (local Ollama).'
+                            : |What it reads is sent to ${provider} with your questions.|">Where content goes</li>
+                    <li>Access lasts until DevMate restarts.</li>
+                </ul>
+                <div class="modal-actions">
+                    <form th:action="@{/folder/allow}" method="post">
+                        <input type="hidden" name="path" th:value="${approvePath}">
+                        <button type="submit" class="primary small" id="approve-allow" autofocus>Allow</button>
+                    </form>
+                    <a class="ghost small" th:href="@{/folder}" id="approve-cancel">Cancel</a>
+                </div>
+            </div>
+        </div>
+        <div class="roots" th:if="${picking != null and roots != null and !roots.isEmpty()}">
+            <span class="folder-meta">Already allowed:</span>
+            <!--/* one form per chip: a chip inside the picker form would send "path" twice */-->
+            <form th:each="root : ${roots}" th:action="@{/folder}" method="post">
+                <button type="submit" class="root-chip" name="path" th:value="${root}" th:text="${root}">/root</button>
+            </form>
+        </div>
+    </section>
+
     <main class="conversation" id="conversation" aria-live="polite">
-        <div class="empty" th:if="${entries.isEmpty()}">
+        <div class="empty" th:if="${entries.isEmpty() and folder != null}">
+            <h1>Ask about this folder</h1>
+            <p>DevMate searches and reads the files in <code th:text="${folder}">folder</code> to answer.</p>
+            <div class="suggestions">
+                <button type="button" class="suggestion" data-text="What does this project do? Look at the README and the build file.">
+                    What does this project do?
+                </button>
+                <button type="button" class="suggestion" data-text="Where is Kafka used in this project?">
+                    Where is Kafka used?
+                </button>
+                <button type="button" class="suggestion" data-text="এই project-এ Kafka কোথায় ব্যবহার করা হয়েছে?">
+                    Kafka কোথায় ব্যবহার হয়েছে?
+                </button>
+            </div>
+        </div>
+
+        <div class="empty" th:if="${entries.isEmpty() and folder == null}">
             <h1>Ask DevMate</h1>
-            <p>Plain chat with the configured model. Code and tool-aware answers arrive with the agent (M3).</p>
+            <p>Plain chat with the configured model. Open a folder to ask questions about its code.</p>
             <div class="suggestions">
                 <button type="button" class="suggestion" data-text="In two sentences, what is the outbox pattern?">
                     What is the outbox pattern?
@@ -49,6 +160,10 @@
                 <!--/* html is commonmark output with raw HTML escaped and URLs sanitised (MarkdownRenderer) */-->
                 <div class="text markdown" th:if="${entry.html() != null}" th:utext="${entry.html()}">Reply</div>
                 <div class="text" th:unless="${entry.html() != null}" th:text="${entry.text()}">Message text</div>
+                <details class="tools" th:if="${!entry.tools().isEmpty()}">
+                    <summary th:text="|Tools used (${entry.tools().size()})|">Tools used</summary>
+                    <ol><li th:each="tool : ${entry.tools()}"><code th:text="${tool}">search_code {}</code></li></ol>
+                </details>
                 <div class="details" th:if="${entry.details() != null}" th:text="${entry.details()}">model · tokens</div>
             </div>
         </article>
@@ -65,7 +180,7 @@
             <label for="message" class="visually-hidden">Message</label>
             <textarea id="message" name="message" rows="1" required autofocus
                       th:attr="maxlength=${maxLength}" th:text="${draft}"
-                      placeholder="Message DevMate…  (Enter to send, Shift+Enter for a new line)"></textarea>
+                      th:placeholder="${folder != null} ? 'Ask about this folder…  (Enter to send, Shift+Enter for a new line)' : 'Message DevMate…  (Enter to send, Shift+Enter for a new line)'"></textarea>
             <button type="submit" id="send" aria-label="Send">
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
                     <path d="M3 20.5v-6.2l9-2.3-9-2.3V3.5L22 12z" fill="currentColor"/>
@@ -74,7 +189,8 @@
         </form>
         <p class="hint" th:text="${provider == 'ollama'}
                 ? 'Answers can be wrong. Runs on your local Ollama; nothing leaves this machine.'
-                : |Answers can be wrong. Messages are sent to ${provider}.|">Answers can be wrong.</p>
+                : (${folder != null} ? |Answers can be wrong. Messages and the file contents DevMate reads are sent to ${provider}.|
+                : |Answers can be wrong. Messages are sent to ${provider}.|)">Answers can be wrong.</p>
     </footer>
 </div>
 

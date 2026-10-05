@@ -18,11 +18,21 @@ class FilesPropertiesTest {
             .withUserConfiguration(Config.class);
 
     @Test
-    void refusesToStartWithoutAllowedRoots() {
-        runner.withPropertyValues("devmate.filesystem.allowed-roots=").run(context -> {
+    void refusesToStartWithoutAllowedRootsWhenClientRootsAreOff() {
+        runner.withPropertyValues("devmate.filesystem.allowed-roots=", "devmate.filesystem.allow-client-roots=false")
+                .run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).rootCause()
                     .hasMessageContaining("set devmate.filesystem.allowed-roots");
+        });
+    }
+
+    @Test
+    void startsWithoutAllowedRootsWhenClientRootsAreOn() {
+        runner.withPropertyValues("devmate.filesystem.allow-client-roots=true").run(context -> {
+            var props = context.getBean(FilesProperties.class);
+            assertThat(props.allowedRoots()).isEmpty();
+            assertThat(props.allowClientRoots()).isTrue();
         });
     }
 

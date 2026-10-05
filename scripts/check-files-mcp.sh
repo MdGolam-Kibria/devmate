@@ -24,9 +24,11 @@ JAR="$ROOT_DIR/devmate-files-mcp/target/devmate-files-mcp-0.1.0-SNAPSHOT.jar"
 WORK=$(mktemp -d -t devmate-m1-XXXX)
 LOG="$WORK/server.log"
 SERVER_PID=""
+NOROOTS_PID=""
 
 cleanup() {
     if [[ -n "$SERVER_PID" && -z "${KEEP:-}" ]]; then kill "$SERVER_PID" 2>/dev/null; fi
+    [[ -n "$NOROOTS_PID" ]] && kill "$NOROOTS_PID" 2>/dev/null
     [[ -z "${KEEP:-}" ]] && rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -63,14 +65,48 @@ echo "  endpoint     : $URL"
 echo "  JDK          : $JAVA_HOME"
 echo
 
-# ── TC-01: refuses to start without allowed roots ─────────────────────────────────────────────
+# ── MCP helpers ───────────────────────────────────────────────────────────────────────────────
+SID=""
+HEADERS=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+rpc() {   # rpc <json-body> → JSON-RPC response (plain JSON or the SSE data line)
+    curl -s "${HEADERS[@]}" ${SID:+-H "Mcp-Session-Id: $SID"} "$URL" -d "$1" | sed -n 's/^data://p; /^{/p' | head -1
+}
+call() {  # call <tool> <arguments-json> → JSON-RPC response
+    rpc "{\"jsonrpc\":\"2.0\",\"id\":$RANDOM,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"
+}
+text()    { jq -r '.result.content[0].text // empty' <<<"$1"; }
+isError() { jq -r '.result.isError // false' <<<"$1"; }
+
 echo "Startup & configuration"
-DEVMATE_FILES_MCP_PORT=$((PORT + 1)) DEVMATE_FILESYSTEM_ALLOWED_ROOTS="" \
+# ── TC-01: refuses to start without allowed roots when client roots are off ───────────────────
+DEVMATE_FILES_MCP_PORT=$((PORT + 1)) DEVMATE_FILESYSTEM_ALLOWED_ROOTS="" DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false \
     timeout 60 "$JAVA" -jar "$JAR" > "$WORK/noroots.log" 2>&1
 code=$?
-result TC-01 "refuses to start without DEVMATE_FILESYSTEM_ALLOWED_ROOTS" \
+result TC-01 "refuses to start without DEVMATE_FILESYSTEM_ALLOWED_ROOTS when client roots are off" \
     "$([[ $code -ne 0 && $code -ne 124 ]] && grep -q 'set devmate.filesystem.allowed-roots' "$WORK/noroots.log" && echo true || echo false)" \
     "exit=$code"
+
+# ── TC-36: default setup (no roots, client roots on) starts and sees nothing until approved ───
+NR_PORT=$((PORT + 1))
+DEVMATE_FILES_MCP_PORT=$NR_PORT DEVMATE_FILESYSTEM_ALLOWED_ROOTS="" "$JAVA" -jar "$JAR" > "$WORK/clientroots.log" 2>&1 &
+NOROOTS_PID=$!
+wait_for_health "http://127.0.0.1:$NR_PORT/actuator/health" "$NOROOTS_PID"
+nr_init() {
+    curl -s -D "$WORK/nr-headers" -o /dev/null "${HEADERS[@]}" "$URL" -d \
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tc36","version":"1"}}}'
+    grep -i '^mcp-session-id' "$WORK/nr-headers" | cut -d' ' -f2 | tr -d '\r'
+}
+NR_URL="http://127.0.0.1:$NR_PORT/mcp"
+NR_SID=$(URL=$NR_URL nr_init)
+URL=$NR_URL SID=$NR_SID rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+nr_list=$(URL=$NR_URL SID=$NR_SID call list_files '{}')
+nr_read=$(URL=$NR_URL SID=$NR_SID call read_file "{\"path\":\"$FIX/README.md\"}")
+kill "$NOROOTS_PID" 2>/dev/null; NOROOTS_PID=""
+result TC-36 "no roots + client roots on (default): starts, lists nothing, denies reads until approved" \
+    "$(grep -q 'allow-client-roots=true' "$WORK/clientroots.log" \
+        && [[ $(text "$nr_list" | jq -r '.entries | length' 2>/dev/null) == 0 ]] \
+        && [[ $(text "$nr_read") == 'ACCESS_DENIED: path is outside the allowed roots' ]] \
+        && echo true || echo false)" "list=$(text "$nr_list") read=$(text "$nr_read")"
 
 # ── start the real server ─────────────────────────────────────────────────────────────────────
 DEVMATE_FILES_MCP_PORT=$PORT DEVMATE_FILESYSTEM_ALLOWED_ROOTS="$FIX" \
@@ -88,18 +124,6 @@ result TC-02 "starts and /actuator/health is UP" "$([[ $(jq -r .status <<<"$heal
 
 listen=$(ss -ltn 2>/dev/null | grep ":$PORT ")
 result TC-03 "listens on loopback only (127.0.0.1)" "$([[ "$listen" =~ 127\.0\.0\.1\]?:$PORT && "$listen" != *"0.0.0.0:$PORT"* && "$listen" != *"[::]:$PORT"* ]] && echo true || echo false)" "$listen"
-
-# ── MCP helpers ───────────────────────────────────────────────────────────────────────────────
-SID=""
-HEADERS=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
-rpc() {   # rpc <json-body> → JSON-RPC response (plain JSON or the SSE data line)
-    curl -s "${HEADERS[@]}" ${SID:+-H "Mcp-Session-Id: $SID"} "$URL" -d "$1" | sed -n 's/^data://p; /^{/p' | head -1
-}
-call() {  # call <tool> <arguments-json> → JSON-RPC response
-    rpc "{\"jsonrpc\":\"2.0\",\"id\":$RANDOM,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"
-}
-text()    { jq -r '.result.content[0].text // empty' <<<"$1"; }
-isError() { jq -r '.result.isError // false' <<<"$1"; }
 
 # ── protocol ──────────────────────────────────────────────────────────────────────────────────
 echo; echo "MCP protocol"

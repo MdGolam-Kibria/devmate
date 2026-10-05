@@ -57,6 +57,21 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   default true). It's disabled in tests via `src/test/resources/application.properties`. LLM tests set the provider
   explicitly so they pass whichever yml block is active. Developer-facing docs: `docs/DEVELOPER-GUIDE.md`.
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
+- Folder Q&A (client): `mcp/McpToolClient` (SDK sync client, lazy connect, one retry on a new session) →
+  `folder/FolderAssistant` maps discovered MCP tools to `llm/LlmTool` (only `readOnlyHint` + a `path` param),
+  `FolderScope` pins `path` to the open folder → `SpringAiLlmClient` runs the tool loop itself (Spring AI 2.0 chat
+  models never execute tools). Tool options must start from `chatModel.getOptions().mutate()`: options passed with a
+  prompt replace the defaults (model was null). Tool errors go back to the model; `McpUnavailableException` aborts.
+  Fake model tool keywords: `SEARCH`/`READ`/`LIST`/`LOOP`/`SYSTEM` (`fake_ollama.py`).
+- Folder approval: "outside the allowed roots" → popup → `POST /folder/allow` → `McpToolClient.approveRoot` declares an
+  MCP root (in memory, until DevMate restarts). Files MCP honours client roots only with
+  `devmate.filesystem.allow-client-roots` (`DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS`, yml default true; then `allowed-roots`
+  may be empty and every folder comes from the popup; false + no roots → refuses to start): `access/ClientRoots`
+  asks `roots/list` per tool call (`McpSyncRequestContext` param, not in the schema) → `FileAccessPolicy.withAdditionalRoots`.
+  The JSON API never approves.
+- Folder picker: `ui/FolderBrowser` lists subfolder **names** only (no files, no dot-folders, cap 500) of an absolute dir
+  for `GET /folder?browse=`; browsers can't reveal a picked folder's path, so the client does it. It grants nothing:
+  "Open this folder" → `POST /folder` (MCP sandbox + popup). Start `devmate.ui.browse-start` (`DEVMATE_BROWSE_START`, home).
 - ADRs in `docs/decisions/ADR-NNNN-*.md` with Context / Decision / Alternatives / Consequences.
 
 ## Recent Changes
@@ -75,3 +90,25 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
 - 2026-10-05 — Developer guide (`docs/DEVELOPER-GUIDE.md`), browser auto-open on startup, default port 8083, provider-independent LLM tests.
 - 2026-10-05 — M1 acceptance cases (`docs/testing/M1-files-mcp-test-cases.md`, 35 cases) automated in `scripts/check-files-mcp.sh` (35/35 PASS; negative check fails TC-03/TC-33 as expected). New rule: every milestone ships the same.
 - 2026-10-05 — Web UI example-message cases (`docs/testing/UI-chat-test-cases.md`, 34 + 3 live) automated in `scripts/check-client.sh` with a fake Ollama; 34/34 and 37/37 (LIVE) PASS. Found and fixed: Spring AI default retry hung provider errors for minutes, now capped.
+- 2026-10-05 — Folder Q&A (on request; a slice of M2+M3, both still ⚪): open a folder in the UI (`/folder`, folder bar,
+  root chips) or `POST /api/folder/ask`; the model reads/searches it via the files MCP server's tools, listed as "Tools
+  used". Config `devmate.mcp.files.url` (`DEVMATE_FILES_MCP_URL`), `devmate.agent.max-tool-rounds` (8),
+  `max-tool-result-chars` (30000). 54 unit + 44 IT green; `check-client.sh` 60/60 (UI-35…60), LIVE 64/64 (llama3.2:3b
+  called `search_code`); negative check: scope guard disabled → UI-49/50 FAIL. Found: root chips inside the picker
+  form sent `path` twice (comma-joined) → one form per chip; blank MCP tool description crashed Spring AI → falls back to name.
+- 2026-10-05 — Approve any folder (on request): a folder outside the files MCP roots shows an "Allow DevMate to read this
+  folder?" popup; Allow declares it as an MCP root until DevMate restarts (user chose: any folder, until restart). Server
+  opt-in `allow-client-roots` (default off: any local MCP client could widen the sandbox). files-mcp 51 unit + 15 IT
+  (`ClientRootsIT`), client 58 + 49, `check-client.sh` 69/69 (UI-61…69), M1 check 35/35; negative check: server always
+  trusting client roots → UI-64 FAIL. `FileAccessPolicy` needs `@Autowired` on its public constructor (second, private one).
+- 2026-10-05 — Files MCP starts with no roots (on request: any folder, granted by the UI popup; running from the IDE
+  needed no env). `allow-client-roots` yml default false → true; `FilesProperties` requires `allowed-roots` only when it's
+  off; with no roots a relative path is `ACCESS_DENIED` (was `NoSuchElementException`). Trade-off documented: any local
+  MCP client can widen its own sandbox; lock down with `…ALLOW_CLIENT_ROOTS=false` + roots. files-mcp 53 unit + 17 IT
+  (`ClientRootsOnlyIT`), M1 check 36/36 (TC-01 now pins client roots off, new TC-36), client check 69/69; negative
+  check: guard removed → TC-01 FAIL.
+- 2026-10-05 — Folder picker (on request: select a folder instead of typing the path): browse with breadcrumb, ⬆ parent,
+  per-row Open and "Open this folder"; "Type a path instead" kept, collapsed. Decision: list directories in the client
+  (no native dialog can give a page an absolute path); names only, access still via the files MCP sandbox. Client 121
+  tests (`FolderBrowserTest`, `FolderChatIT` +5), `check-client.sh` 81/81 (UI-70…81); negative check: listing files and
+  dot-folders → UI-72 FAIL. Verified in Chrome: click through → Open this folder → folder opens.

@@ -60,7 +60,7 @@ class FileServiceTest {
     void listTruncatesAtLimit() {
         var p = ws.properties();
         var limited = serviceWith(new FilesProperties(p.allowedRoots(), p.maxFileSize(), 2, p.maxSearchResults(),
-                p.maxSearchFiles(), p.maxLineLength(), p.excludedDirectories(), p.deniedFiles()));
+                p.maxSearchFiles(), p.maxLineLength(), p.excludedDirectories(), p.deniedFiles(), false));
 
         var result = limited.listFiles(".");
 
@@ -146,7 +146,7 @@ class FileServiceTest {
     void searchTruncatesAtResultLimit() {
         var p = ws.properties();
         var limited = serviceWith(new FilesProperties(p.allowedRoots(), p.maxFileSize(), p.maxListEntries(), 2,
-                p.maxSearchFiles(), p.maxLineLength(), p.excludedDirectories(), p.deniedFiles()));
+                p.maxSearchFiles(), p.maxLineLength(), p.excludedDirectories(), p.deniedFiles(), false));
 
         var result = limited.searchCode("KafkaTemplate", null, null);
 
@@ -158,7 +158,7 @@ class FileServiceTest {
     void searchTruncatesAtFileScanLimit() {
         var p = ws.properties();
         var limited = serviceWith(new FilesProperties(p.allowedRoots(), p.maxFileSize(), p.maxListEntries(),
-                p.maxSearchResults(), 1, p.maxLineLength(), p.excludedDirectories(), p.deniedFiles()));
+                p.maxSearchResults(), 1, p.maxLineLength(), p.excludedDirectories(), p.deniedFiles(), false));
 
         var result = limited.searchCode("package", null, null);
 
@@ -180,7 +180,7 @@ class FileServiceTest {
         var p = ws.properties();
         var overlapping = serviceWith(new FilesProperties(List.of(ws.root(), ws.root().resolve("src")),
                 p.maxFileSize(), p.maxListEntries(), p.maxSearchResults(), p.maxSearchFiles(), p.maxLineLength(),
-                p.excludedDirectories(), p.deniedFiles()));
+                p.excludedDirectories(), p.deniedFiles(), false));
 
         assertThat(overlapping.searchCode("KafkaTemplate", null, null).matches()).hasSize(3);
     }

@@ -57,7 +57,7 @@ access/FileAccessPolicy       the single security gate, used for every path:
         │                       4. real path must be inside a real root   else ACCESS_DENIED
         │                       5. no excluded dir segment, no denied file name  else ACCESS_DENIED
         ▼
-config/FilesProperties        validated limits; no roots configured → server refuses to start
+config/FilesProperties        validated limits; no roots and client roots off → server refuses to start
 ```
 
 **Search** walks the tree without following symlinks, skips excluded directories, denied files, files over the
@@ -84,7 +84,8 @@ DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/home/golamkibria/kibria/devmate \
 
 | Setting | Env var / property | Default |
 |---|---|---|
-| Allowed folders (required) | `DEVMATE_FILESYSTEM_ALLOWED_ROOTS` (comma-separated) | none: won't start |
+| Always-allowed folders | `DEVMATE_FILESYSTEM_ALLOWED_ROOTS` (comma-separated **absolute** paths) | none (required only when client roots are off) |
+| Accept client-approved folders | `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS` | `true` |
 | Port | `DEVMATE_FILES_MCP_PORT` | `8091` |
 | Listen address | `DEVMATE_FILES_MCP_ADDRESS` | `127.0.0.1` |
 | Browser origins allowed | `DEVMATE_HTTP_ALLOWED_ORIGINS` | none |
@@ -92,6 +93,17 @@ DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/home/golamkibria/kibria/devmate \
 | Max search results / files scanned | `devmate.filesystem.max-search-results` / `max-search-files` | `200` / `20000` |
 | Hidden directories | `devmate.filesystem.excluded-directories` | `.git, target, build, node_modules, …` |
 | Hidden files | `devmate.filesystem.denied-files` | `.env*, *.pem, *.key, id_rsa*, …` |
+
+### Client-approved folders (MCP roots)
+
+With `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true`, each tool call asks the calling client for its MCP **roots**
+(`roots/list`) and adds those folders to the sandbox **for that client's session only** (`access/ClientRoots` →
+`FileAccessPolicy.withAdditionalRoots`). DevMate declares the folders you approved in its popup. Everything else still
+applies: real-path checks, symlinks, deny lists, hidden directories, read-only. Only `file:` roots that exist as
+directories count. It's on by default so the server can start with no roots (e.g. from the IDE) and every folder is
+granted through DevMate's popup. The trade-off: any local process that speaks MCP can read any folder it declares.
+On a shared machine set it to `false` and list `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`. Tested by `ClientRootsIT` (on) and
+`FilesMcpServerIT.clientRootsAreIgnoredByDefault` (off).
 
 ## Use
 
@@ -117,7 +129,7 @@ curl -s "${H[@]}" -H "Mcp-Session-Id: $SID" localhost:8091/mcp -d '{"jsonrpc":"2
 **Is it working? One command:**
 
 ```bash
-./scripts/check-files-mcp.sh     # builds a fixture, starts the jar, runs 35 cases → "ALL 35 CASES PASSED"
+./scripts/check-files-mcp.sh     # builds a fixture, starts the jar, runs 36 cases → "ALL 36 CASES PASSED"
 ```
 
 The cases are listed in [docs/testing/M1-files-mcp-test-cases.md](../docs/testing/M1-files-mcp-test-cases.md).

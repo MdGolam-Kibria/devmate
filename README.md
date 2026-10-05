@@ -46,7 +46,7 @@ Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md), 
 
 | Module           | Milestone | Purpose                                                    |
 |------------------|-----------|------------------------------------------------------------|
-| `devmate-client`    | M0 | Spring Boot app. Will host the MCP client (M2) and agent (M3). |
+| `devmate-client`    | M0 | Spring Boot app: web UI, LLM access, MCP client for folder Q&A. Will host the full MCP client (M2) and agent (M3). |
 | `devmate-files-mcp` | M1 | MCP server (Streamable HTTP, `:8091/mcp`): `list_files`, `read_file`, `search_code`, sandboxed and read-only |
 
 Each future module (`devmate-git-mcp`, …) is added when its milestone starts.
@@ -59,8 +59,8 @@ export JAVA_HOME=/path/to/jdk-25        # build fails fast (enforcer) on an olde
 java -jar devmate-client/target/devmate-client-*.jar
 curl localhost:8083/actuator/health     # {"groups":["liveness","readiness"],"status":"UP"}
 
-# Files MCP server: refuses to start without allowed roots
-DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/workspace/projects java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar
+# Files MCP server: reads nothing until a folder is approved in the UI (or pre-allowed via DEVMATE_FILESYSTEM_ALLOWED_ROOTS)
+java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar
 ```
 
 Files MCP configuration (`devmate.filesystem.*`, limits, security controls): [M1](docs/milestones/M1.md).
@@ -114,7 +114,12 @@ It opens in your default browser automatically when the app starts (`DEVMATE_OPE
 When overriding from the command line, set **both** provider and model, e.g.
 `--devmate.llm.provider=ollama --devmate.llm.model=llama3.2:3b`. Otherwise the model from the active YAML block is kept.
 
-`/api/chat` (JSON) is plain chat to confirm a provider works. Tool calling and the agent arrive in M3.
+`/api/chat` (JSON) is plain chat to confirm a provider works.
+
+**Ask about a folder** (slice of M2/M3, pulled forward on request): start `devmate-files-mcp`, then in the UI click **📁 Open a folder**, click through to any folder (click **Allow** in the
+popup unless it's inside `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`) and ask about its code. The model calls the server's tools (discovered via `tools/list`, pinned to that folder) and each
+answer lists the tools it used. JSON: `POST /api/folder/ask {"folder": "…", "question": "…"}`. See the
+[client README](devmate-client/README.md#ask-about-a-folder).
 Live check against local Ollama: `DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT`.
 
 ## Configuration

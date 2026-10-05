@@ -5,6 +5,7 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.SessionScope;
 
@@ -30,8 +31,15 @@ public class ChatHistory implements Serializable {
     /**
      * @param html    sanitised HTML rendering of {@code text} (assistant replies only), else null
      * @param details short metadata line (model, tokens, latency) or null
+     * @param tools   tool calls made for this reply, one line each ({@code name {arguments}}); empty if none
      */
-    public record Entry(Role role, String text, String html, String details, Instant at) implements Serializable {}
+    public record Entry(Role role, String text, String html, String details, List<String> tools, Instant at)
+            implements Serializable {
+
+        public Entry {
+            tools = List.copyOf(Objects.requireNonNullElse(tools, List.of()));
+        }
+    }
 
     private final List<Entry> entries = new ArrayList<>();
 
@@ -39,8 +47,12 @@ public class ChatHistory implements Serializable {
         return List.copyOf(entries);
     }
 
-    public synchronized void add(Role role, String text, String html, String details) {
-        entries.add(new Entry(role, text, html, details, Instant.now()));
+    public void add(Role role, String text, String html, String details) {
+        add(role, text, html, details, List.of());
+    }
+
+    public synchronized void add(Role role, String text, String html, String details, List<String> tools) {
+        entries.add(new Entry(role, text, html, details, tools, Instant.now()));
         while (entries.size() > MAX_ENTRIES) {
             entries.removeFirst();
         }

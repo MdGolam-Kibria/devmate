@@ -13,15 +13,14 @@ design decisions see [docs/decisions](decisions).
 | 🔵 | **M1 Files MCP server** (`devmate-files-mcp`) | MCP server with `list_files`, `read_file`, `search_code`, sandboxed to configured folders, read-only |
 | ➕ | **LLM switch** (pulled forward from M3) | `devmate-client` talks to **Anthropic Claude** or **local Ollama**, chosen in `application.yml` |
 | ➕ | **Web UI** | Chat page at `http://localhost:8083/` (Thymeleaf), opens in your browser on startup |
-| ⚪ | M2 MCP client, M3 agent, … | Not built yet. The UI/LLM don't use the MCP tools yet |
-
-The two apps run separately and don't talk to each other yet. Connecting them is M2 (MCP client) and M3 (agent).
+| ➕ | **Ask about a folder** (slice of M2 + M3) | Open a folder in the UI; the model reads/searches it through the files MCP server's tools |
+| ⚪ | M2 MCP client, M3 agent, … | Milestones still open: only the folder slice exists (one server, no multi-turn memory) |
 
 ```text
  Browser ──► devmate-client :8083 ──► LLM (Anthropic API  or  Ollama :11434)
-             (UI, /api/chat)
-
- MCP client (SDK / curl / Inspector) ──► devmate-files-mcp :8091/mcp ──► allowed folders (read-only)
+             (UI, /api/chat,          ▲ tool calls / results
+              /api/folder/ask)        │
+                    └── MCP client ───┴──► devmate-files-mcp :8091/mcp ──► allowed folders (read-only)
 ```
 
 ---
@@ -128,6 +127,40 @@ only when that profile is active (`--spring.profiles.active=dev`, or "Active pro
 - Each question is answered on its own: the model does not remember earlier messages yet (that comes with the M3 agent).
 - The footer says where your text goes: local Ollama, or the hosted provider.
 
+### 4.3a Ask questions about a folder
+
+1. Start the files MCP server (section 5): `java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar`. With no
+   roots it can read nothing until you approve a folder in the UI; optionally pre-allow folders with
+   `DEVMATE_FILESYSTEM_ALLOWED_ROOTS=$HOME/projects`.
+2. Start DevMate as usual. It finds the server at `DEVMATE_FILES_MCP_URL` (default `http://127.0.0.1:8091/mcp`).
+   Start order doesn't matter: DevMate connects on first use and reconnects if the server restarts.
+3. In the UI click **📁 Open a folder**, click through the folders (breadcrumb, ⬆ for the parent) and press **Open this
+   folder** (or **Open** on a row). **Type a path instead** is still there. The picker starts in your home folder
+   (`DEVMATE_BROWSE_START`).
+4. Ask, e.g. *"What does this project do?"*, *"Where is Kafka used?"*, *"এই project-এ Kafka কোথায় ব্যবহার করা হয়েছে?"*.
+   Expand **Tools used** under the answer to see each `search_code` / `read_file` / `list_files` call.
+5. **Close folder** returns to plain chat. The open folder is per browser session.
+
+**A folder outside the allowed roots** (every folder, when none are configured): opening it shows a popup, **"Allow
+DevMate to read this folder?"**. Click **Allow** and it opens (read-only, secrets still hidden) until DevMate
+restarts. This is the default (`DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true`). To lock the server down to fixed folders,
+start it with `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false DEVMATE_FILESYSTEM_ALLOWED_ROOTS=…`; Allow then says the
+server didn't accept the approval.
+
+The model can't leave the folder: `../`, other roots and `/etc/...` are refused with
+`ACCESS_DENIED: path is outside the selected folder`, and the server still hides `.env`, keys, `.git`, `target`.
+With Anthropic, file contents the tools return are sent to Anthropic (the footer says so); with Ollama nothing
+leaves the machine. Small local models are slow with tools on CPU (about 60 s for llama3.2:3b) and sometimes don't
+call a tool. Naming one in the question ("use search_code") helps.
+
+Same thing from a script:
+
+```bash
+curl -s -X POST localhost:8083/api/folder/ask -H 'Content-Type: application/json' \
+     -d '{"folder":"/home/me/projects/shop","question":"Where is Kafka used?"}' | jq '{reply, toolCalls}'
+curl -s localhost:8083/api/folder/roots          # folders the server allows
+```
+
 ### 4.4 Use the JSON API
 
 ```bash
@@ -154,8 +187,10 @@ DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/home/golamkibria/kibria/devmate \
 # MCP endpoint: http://127.0.0.1:8091/mcp   (Streamable HTTP)
 ```
 
-It **refuses to start** without `DEVMATE_FILESYSTEM_ALLOWED_ROOTS` (comma-separated folders). Nothing outside those
-folders is reachable, and secrets (`.env`, `*.pem`, `id_rsa`, …) plus `.git`/`target`/`node_modules` are hidden.
+`DEVMATE_FILESYSTEM_ALLOWED_ROOTS` (comma-separated absolute folders) is optional: without it the server starts with
+nothing readable, and DevMate's **Allow** popup grants folders one by one (`allow-client-roots`, default `true`). With
+`DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false` the roots are required and it refuses to start without them. Nothing
+outside the allowed/approved folders is reachable, and secrets (`.env`, `*.pem`, `id_rsa`, …) plus `.git`/`target`/`node_modules` are hidden.
 
 | Tool | Arguments | Example |
 |---|---|---|
@@ -252,7 +287,7 @@ Each milestone has a test-case document and a script that runs every case agains
 
 ```text
 $ ./scripts/check-files-mcp.sh
-  PASS  TC-01  refuses to start without DEVMATE_FILESYSTEM_ALLOWED_ROOTS
+  PASS  TC-01  refuses to start without DEVMATE_FILESYSTEM_ALLOWED_ROOTS when client roots are off
   …
   PASS  TC-20  read_file("escape.txt") symlink pointing outside → ACCESS_DENIED
   …
@@ -286,7 +321,11 @@ ALL 35 CASES PASSED — the Files MCP server is working.
 | Badge shows `ollama / claude-…` | You overrode only the provider on the command line; also pass `--devmate.llm.model=` |
 | Answers are poor or wrong | Small local models (1.5–3B) are weak. Try a bigger model or Claude |
 | Browser didn't open | No desktop session, or `DEVMATE_OPEN_BROWSER=false`. Open the logged URL manually |
-| Files MCP won't start | Set `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`; each folder must exist |
+| Files MCP won't start | With `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false`, set `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`; each folder must exist |
+| "Files MCP server is not reachable at …" | Start `devmate-files-mcp`, or point `DEVMATE_FILES_MCP_URL` at it |
+| Opening a folder says `ACCESS_DENIED: … outside the allowed roots` | Click **Allow** in the popup (needs `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true` on the server, the default), or add it to `DEVMATE_FILESYSTEM_ALLOWED_ROOTS` and restart the server. Roots are comma-separated **absolute** paths: `/a,/home/me/b`, not `/a,me/b` |
+| Allow says "did not accept the approval" | The files MCP server runs with `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false`, or the folder doesn't exist |
+| Folder answer has no "Tools used" | The model answered without looking. Ask it to "use search_code", or use a stronger model |
 | MCP Inspector gets 403 | Add its origin: `DEVMATE_HTTP_ALLOWED_ORIGINS=http://localhost:6274` |
 
 ---

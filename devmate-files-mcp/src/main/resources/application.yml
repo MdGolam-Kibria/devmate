@@ -36,8 +36,12 @@ server:
 
 devmate:
   filesystem:
-    # Required. No default on purpose. Comma-separated via DEVMATE_FILESYSTEM_ALLOWED_ROOTS.
+    # Folders always readable. Comma-separated absolute paths via DEVMATE_FILESYSTEM_ALLOWED_ROOTS.
+    # May be empty while allow-client-roots is on: every folder is then granted through DevMate's "Allow" popup.
     allowed-roots: ${DEVMATE_FILESYSTEM_ALLOWED_ROOTS:}
+    # Also allow the folders an MCP client declares as roots (DevMate: folders you approved in its UI).
+    # Any local MCP client can then widen the sandbox for its own session. Set false (and allowed-roots) to lock down.
+    allow-client-roots: ${DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS:true}
   http:
     # Browser origins allowed to call /mcp (e.g. MCP Inspector: http://localhost:6274). Empty = none.
     allowed-origins: ${DEVMATE_HTTP_ALLOWED_ORIGINS:}

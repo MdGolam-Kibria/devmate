@@ -12,9 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -31,6 +33,7 @@ public final class FileAccessPolicy {
     private final Set<String> excludedDirectories;
     private final List<PathMatcher> deniedFiles;
 
+    @Autowired
     public FileAccessPolicy(FilesProperties properties) {
         this.roots = properties.allowedRoots().stream().map(FileAccessPolicy::toRealDirectory).distinct().toList();
         this.excludedDirectories = Set.copyOf(properties.excludedDirectories());
@@ -39,7 +42,38 @@ public final class FileAccessPolicy {
                 .toList();
     }
 
-    /** Real paths of the allowed roots, in configured order. Relative tool paths resolve against the first. */
+    private FileAccessPolicy(List<Path> roots, Set<String> excludedDirectories, List<PathMatcher> deniedFiles) {
+        this.roots = roots;
+        this.excludedDirectories = excludedDirectories;
+        this.deniedFiles = deniedFiles;
+    }
+
+    /**
+     * This policy with extra roots (e.g. folders the user approved in the MCP client), appended after the configured
+     * ones so relative paths still resolve against the first configured root. Every other rule stays the same.
+     * Entries that don't exist or aren't directories are ignored.
+     */
+    public FileAccessPolicy withAdditionalRoots(List<Path> additional) {
+        var combined = new ArrayList<>(roots);
+        for (Path candidate : additional) {
+            try {
+                Path real = candidate.toAbsolutePath().toRealPath();
+                if (Files.isDirectory(real) && !combined.contains(real)) {
+                    combined.add(real);
+                }
+            } catch (IOException | SecurityException e) {
+                // a root the client can't see doesn't widen anything
+            }
+        }
+        return combined.size() == roots.size()
+                ? this
+                : new FileAccessPolicy(List.copyOf(combined), excludedDirectories, deniedFiles);
+    }
+
+    /**
+     * Real paths of the allowed roots, in configured order. Relative tool paths resolve against the first. Empty when
+     * the server runs on client roots only and the client hasn't granted any yet.
+     */
     public List<Path> roots() {
         return roots;
     }
@@ -56,6 +90,9 @@ public final class FileAccessPolicy {
         Path requested;
         try {
             Path parsed = Path.of(rawPath.strip());
+            if (!parsed.isAbsolute() && roots.isEmpty()) {
+                throw outsideRoots();
+            }
             requested = (parsed.isAbsolute() ? parsed : roots.getFirst().resolve(parsed)).normalize();
         } catch (InvalidPathException e) {
             throw new FileAccessException(INVALID_ARGUMENT, "not a valid path");
