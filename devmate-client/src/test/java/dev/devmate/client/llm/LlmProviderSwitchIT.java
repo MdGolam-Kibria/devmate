@@ -14,13 +14,16 @@ import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * Proves the application.yml switch: setting {@code devmate.llm.provider/model} (what commenting/uncommenting the
- * blocks does) activates exactly that provider's ChatModel with that model name. No network calls are made.
+ * blocks does) activates exactly that provider's ChatModel with that model name. Each test names its provider, so the
+ * result doesn't depend on which block is currently active in application.yml. No network calls are made.
  */
 class LlmProviderSwitchIT {
 
+    private static final String[] ANTHROPIC = {"--devmate.llm.provider=anthropic", "--devmate.llm.model=claude-sonnet-5-5"};
+
     @Test
-    void anthropicIsTheDefaultProvider() {
-        try (var context = start()) {
+    void anthropicBlockActivatesAnthropicOnly() {
+        try (var context = start(ANTHROPIC)) {
             assertThat(context.getBeansOfType(ChatModel.class).values())
                     .singleElement().isInstanceOf(AnthropicChatModel.class);
             assertThat(context.getBean(LlmProperties.class))
@@ -43,21 +46,24 @@ class LlmProviderSwitchIT {
 
     @Test
     void modelCanBeOverriddenByEnvironmentWithoutEditingYaml() {
-        try (var context = start("--DEVMATE_LLM_MODEL=claude-opus-5-5")) {
+        try (var context = start("--devmate.llm.provider=anthropic", "--devmate.llm.model=${DEVMATE_LLM_MODEL:claude-sonnet-5-5}",
+                "--DEVMATE_LLM_MODEL=claude-opus-5-5")) {
             assertThat(context.getBean(LlmProperties.class).model()).isEqualTo("claude-opus-5-5");
         }
     }
 
     @Test
     void anthropicWithoutApiKeyFailsFastWithClearMessage() {
-        assertThatThrownBy(() -> start("--spring.ai.anthropic.api-key=").close())
+        assertThatThrownBy(() -> start("--devmate.llm.provider=anthropic", "--devmate.llm.model=claude-sonnet-5-5",
+                "--spring.ai.anthropic.api-key=").close())
                 .rootCause()
                 .hasMessageContaining("set the ANTHROPIC_API_KEY environment variable");
     }
 
     @Test
     void ollamaNeedsNoApiKey() {
-        try (var context = start("--devmate.llm.provider=ollama", "--spring.ai.anthropic.api-key=")) {
+        try (var context = start("--devmate.llm.provider=ollama", "--devmate.llm.model=llama3.2:3b",
+                "--spring.ai.anthropic.api-key=")) {
             assertThat(context.getBean(LlmClient.class)).isNotNull();
         }
     }

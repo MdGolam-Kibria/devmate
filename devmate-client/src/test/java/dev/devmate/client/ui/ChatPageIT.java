@@ -25,7 +25,8 @@ import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** The Thymeleaf chat page over real HTTP, as a browser would use it (session cookie, form posts, redirects). */
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = {"devmate.llm.provider=anthropic", "devmate.llm.model=claude-sonnet-5-5"})
 class ChatPageIT {
 
     @MockitoBean

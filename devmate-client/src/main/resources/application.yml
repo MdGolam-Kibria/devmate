@@ -54,7 +54,7 @@ spring:
 ---
 server:
   address: ${DEVMATE_ADDRESS:127.0.0.1}   # loopback by default: the UI can spend LLM tokens and has no auth yet
-  port: ${DEVMATE_PORT:8080}
+  port: ${DEVMATE_PORT:8083}
   shutdown: graceful
   servlet:
     session:
@@ -69,6 +69,9 @@ server:
 
 spring.thymeleaf:
   cache: ${DEVMATE_TEMPLATE_CACHE:true}
+
+devmate.ui:
+  open-browser: ${DEVMATE_OPEN_BROWSER:true}   # open the UI in the default browser on startup (local desktop only)
 
 ---
 management:

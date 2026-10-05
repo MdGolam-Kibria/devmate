@@ -15,7 +15,8 @@ import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** HTTP contract of POST /api/chat, with the model replaced by a mock. */
-@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = {"devmate.llm.provider=anthropic", "devmate.llm.model=claude-sonnet-5-5"})
 class ChatControllerIT {
 
     @MockitoBean

@@ -57,7 +57,7 @@ Each future module (`devmate-git-mcp`, …) is added when its milestone starts.
 export JAVA_HOME=/path/to/jdk-25        # build fails fast (enforcer) on an older JDK
 ./mvnw clean verify                     # unit (*Test, surefire) + integration (*IT, failsafe)
 java -jar devmate-client/target/devmate-client-*.jar
-curl localhost:8080/actuator/health     # {"groups":["liveness","readiness"],"status":"UP"}
+curl localhost:8083/actuator/health     # {"groups":["liveness","readiness"],"status":"UP"}
 
 # Files MCP server: refuses to start without allowed roots
 DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/workspace/projects java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar
@@ -87,7 +87,7 @@ To switch, comment one block and uncomment the other. You can also override with
 ```bash
 export ANTHROPIC_API_KEY=...            # Anthropic only; startup fails with a clear message if missing
 java -jar devmate-client/target/devmate-client-*.jar
-curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
+curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' \
      -d '{"message":"In one sentence: what is Apache Kafka?"}'
 # {"provider":"ollama","model":"llama3.2:3b","reply":"Apache Kafka is ...","inputTokens":35,"outputTokens":37,"durationMs":3954}
 ```
@@ -101,7 +101,8 @@ curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
 
 ## Web UI
 
-Open **http://localhost:8080/** for a chat page (Thymeleaf, server-rendered, works without JavaScript):
+Open **http://localhost:8083/** for a chat page (Thymeleaf, server-rendered, works without JavaScript).
+It opens in your default browser automatically when the app starts (`DEVMATE_OPEN_BROWSER=false` to disable):
 
 - The badge shows the active provider and model. "New chat" clears the conversation.
 - Replies are rendered from Markdown (lists, code blocks, tables) with raw HTML escaped and unsafe links removed.
@@ -122,7 +123,7 @@ Precedence: environment variables > `application-{profile}.yml` > `application.y
 
 | Variable / profile                    | Default | Effect                                      |
 |---------------------------------------|---------|---------------------------------------------|
-| `DEVMATE_PORT`                        | `8080`  | HTTP port                                   |
+| `DEVMATE_PORT`                        | `8083`  | HTTP port                                   |
 | `DEVMATE_SHUTDOWN_TIMEOUT`            | `20s`   | Graceful shutdown grace period              |
 | `SPRING_PROFILES_ACTIVE=dev`          | —       | DEBUG logs for `dev.devmate`, health details |
 | `SPRING_PROFILES_ACTIVE=json-logs`    | —       | ECS JSON console logs (for containers)      |
@@ -137,6 +138,7 @@ OpenTelemetry tracing (`traceId`/`spanId`) comes in a later milestone.
 
 ## Documentation
 
+- **[Developer guide](docs/DEVELOPER-GUIDE.md)**: what's built, how to run, use and test it, troubleshooting
 - [Project prompt & full milestone plan (M0–M14)](PROMPT.md): the original brief DevMate is built from
 - [Architecture overview](docs/architecture/overview.md)
 - [Decisions (ADRs)](docs/decisions)

@@ -9,7 +9,7 @@ When a milestone completes, switch its ⚪ to 🔵 in `PROMPT.md` (roadmap + hea
 ## Build
 
 JDK 25 is not the system default (that is 17): `export JAVA_HOME=~/.jdks/ms-25.0.4.1`, then `./mvnw clean verify`.
-`*Test` → surefire, `*IT` → failsafe. Run: `java -jar devmate-client/target/devmate-client-*.jar` (port `DEVMATE_PORT`, default 8080).
+`*Test` → surefire, `*IT` → failsafe. Run: `java -jar devmate-client/target/devmate-client-*.jar` (port `DEVMATE_PORT`, default 8083).
 Files MCP: `DEVMATE_FILESYSTEM_ALLOWED_ROOTS=<dirs> java -jar devmate-files-mcp/target/devmate-files-mcp-*.jar` → `127.0.0.1:8091/mcp`.
 Node.js is not installed, so MCP Inspector is unavailable. Drive servers with the SDK client in an IT, or raw JSON-RPC over curl.
 
@@ -35,6 +35,9 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   URL rewriting put `;jsessionid` in redirects, which caused 404s. The client binds `127.0.0.1` by default.
 - Local runs: never `pkill -f`/`pgrep -f` with a pattern that's in your own command line (it kills the shell, exit 144).
   Start with `&`, save `$!`, kill that PID.
+- `BrowserLauncher` opens the UI on `ApplicationReadyEvent` (`devmate.ui.open-browser`, env `DEVMATE_OPEN_BROWSER`,
+  default true). It's disabled in tests via `src/test/resources/application.properties`. LLM tests set the provider
+  explicitly so they pass whichever yml block is active. Developer-facing docs: `docs/DEVELOPER-GUIDE.md`.
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
 - ADRs in `docs/decisions/ADR-NNNN-*.md` with Context / Decision / Alternatives / Consequences.
 
@@ -51,3 +54,4 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
 - 2026-10-05 — LLM slice pulled forward from M3 (on request): Anthropic + Ollama switchable via commented yml blocks, `LlmClient` port, `SpringAiLlmClient`, `POST /api/chat`, fail-fast key check. Verified live: Ollama llama3.2:3b answered; Anthropic without key fails at startup. M3 (tools/agent) still ⚪.
 - 2026-10-05 — Thymeleaf chat UI at `/`: provider/model badge, safe Markdown replies, session history, PRG,
   loopback binding, cookie-only Strict sessions, `Enable-Native-Access` manifest (Netty warning on JDK 25). Verified in Chrome against Ollama llama3.2:3b. 103 tests green.
+- 2026-10-05 — Developer guide (`docs/DEVELOPER-GUIDE.md`), browser auto-open on startup, default port 8083, provider-independent LLM tests.
