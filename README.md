@@ -138,8 +138,12 @@ OpenTelemetry tracing (`traceId`/`spanId`) comes in a later milestone.
 
 ## Documentation
 
-- **[Developer guide](docs/DEVELOPER-GUIDE.md)**: what's built, how to run, use and test it, troubleshooting
-- [Project prompt & full milestone plan (M0–M14)](PROMPT.md): the original brief DevMate is built from
-- [Architecture overview](docs/architecture/overview.md)
-- [Decisions (ADRs)](docs/decisions)
-- [Milestones](docs/milestones)
+| Read this | For |
+|---|---|
+| [docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md) | **Start here.** Set up, run, use, test, troubleshoot |
+| [devmate-client/README.md](devmate-client/README.md) | Chat UI + LLM app: features, **how it works**, how to test it |
+| [devmate-files-mcp/README.md](devmate-files-mcp/README.md) | Files MCP server: tools, **how it works**, how to test it |
+| [docs/milestones](docs/milestones) | What each milestone delivered and how it was verified |
+| [docs/decisions](docs/decisions) | Why: ADR-0001 baseline, ADR-0002 MCP stack, ADR-0003 any-LLM |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | Architecture and conventions |
+| [PROMPT.md](PROMPT.md) | The original brief and full M0–M14 roadmap |
