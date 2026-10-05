@@ -528,7 +528,8 @@ This is the first major MCP milestone.
 
 > **Amendment (2026-10-05):** DevMate must be able to use **any model**: hosted providers (Claude, OpenAI,
 > Google, Mistral, DeepSeek, Bedrock, Azure OpenAI, any OpenAI-compatible server) **and local Ollama models**
-> (e.g. `llama3.2:3b`, `qwen2.5-coder:1.5b`). Provider + model are configuration only; the default is local Ollama.
+> (e.g. `llama3.2:3b`, `qwen2.5-coder:1.5b`). Provider + model are configuration only:
+> `application.yml` has an Anthropic block (active) and an Ollama block (commented). Swap the comments to switch.
 > See [ADR-0003](docs/decisions/ADR-0003-model-agnostic-llm.md).
 
 Integrate an LLM abstraction.
