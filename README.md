@@ -65,6 +65,43 @@ DEVMATE_FILESYSTEM_ALLOWED_ROOTS=/workspace/projects java -jar devmate-files-mcp
 
 Files MCP configuration (`devmate.filesystem.*`, limits, security controls): [M1](docs/milestones/M1.md).
 
+## LLM: switch between Anthropic and local Ollama
+
+`devmate-client/src/main/resources/application.yml` has two provider blocks. Exactly one is active:
+
+```yaml
+devmate:
+  llm:
+    # ── Option 1 (ACTIVE): Anthropic Claude. Needs env ANTHROPIC_API_KEY ──
+    provider: anthropic
+    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
+
+    # ── Option 2: local Ollama (no API key; ollama serve on localhost:11434) ──
+    # provider: ollama
+    # model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+```
+
+To switch, comment one block and uncomment the other. You can also override without editing:
+`--devmate.llm.provider=ollama --devmate.llm.model=qwen2.5-coder:1.5b`, or `DEVMATE_LLM_MODEL=claude-opus-5-5`.
+
+```bash
+export ANTHROPIC_API_KEY=...            # Anthropic only; startup fails with a clear message if missing
+java -jar devmate-client/target/devmate-client-*.jar
+curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
+     -d '{"message":"In one sentence: what is Apache Kafka?"}'
+# {"provider":"ollama","model":"llama3.2:3b","reply":"Apache Kafka is ...","inputTokens":35,"outputTokens":37,"durationMs":3954}
+```
+
+| Variable            | Used by    | Default                  |
+|---------------------|------------|--------------------------|
+| `ANTHROPIC_API_KEY` | anthropic  | none (required)          |
+| `OLLAMA_BASE_URL`   | ollama     | `http://localhost:11434` |
+| `DEVMATE_LLM_MODEL` | both       | per block above          |
+| `DEVMATE_LLM_TIMEOUT` | anthropic | `120s`                  |
+
+`/api/chat` is plain chat to confirm a provider works. Tool calling and the agent arrive in M3.
+Live check against local Ollama: `DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT`.
+
 ## Configuration
 
 Precedence: environment variables > `application-{profile}.yml` > `application.yml`.

@@ -9,6 +9,49 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: ${DEVMATE_SHUTDOWN_TIMEOUT:20s}
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM (ADR-0003). Exactly ONE provider block below is active.
+# To switch: comment the active block and uncomment the other. Nothing else changes.
+# ─────────────────────────────────────────────────────────────────────────────
+devmate:
+  llm:
+    # ── Option 1 (ACTIVE): Anthropic Claude. Needs env ANTHROPIC_API_KEY ──────
+    provider: anthropic
+    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
+
+    # ── Option 2: local Ollama (no API key; ollama serve on localhost:11434) ──
+    # provider: ollama
+    # model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+
+  ai:  # provider settings: endpoints and keys only, never secrets in this file
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+
+---
+# Wiring: derived from devmate.llm above. Don't edit; switch providers in the block above.
+spring:
+  ai:
+    model:
+      chat: ${devmate.llm.provider}   # activates only the selected provider's ChatModel
+      embedding: none                 # embeddings arrive with RAG (M6)
+    anthropic:
+      api-key: ${devmate.ai.anthropic.api-key}
+      timeout: ${DEVMATE_LLM_TIMEOUT:120s}
+      chat:
+        model: ${devmate.llm.model}
+        max-tokens: 4096
+        temperature: 0.1
+    ollama:
+      base-url: ${devmate.ai.ollama.base-url}
+      init:
+        pull-model-strategy: never    # never download models implicitly
+      chat:
+        model: ${devmate.llm.model}
+        temperature: 0.1
+
+---
 server:
   port: ${DEVMATE_PORT:8080}
   shutdown: graceful

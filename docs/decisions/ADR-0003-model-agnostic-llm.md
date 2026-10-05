@@ -1,6 +1,8 @@
 # ADR-0003 — Model-agnostic LLM layer (any provider, including local Ollama)
 
-- Status: Accepted. Implemented in **M3** (not before: M2 comes first)
+- Status: Accepted. **Partly implemented early (2026-10-05, on request):** provider switch + plain chat
+  (`LlmClient`, `SpringAiLlmClient`, `POST /api/chat`) for `anthropic` (active) and `ollama` (commented block).
+  Tool calling, the agent and the Ollama tool-capability check remain in **M3**.
 - Date: 2026-10-05
 
 ## Context
@@ -27,17 +29,16 @@ Environment checked on 2026-10-05:
    ```yaml
    devmate:
      llm:
-       provider: ollama            # ollama | openai | anthropic | google-genai | mistral-ai | deepseek | bedrock-converse
-       model: llama3.2:3b          # any model name the provider accepts
-       temperature: 0.1
-       timeout: 120s
+       provider: anthropic         # anthropic | ollama today; add a Spring AI starter for others
+       model: claude-sonnet-5-5    # any model name the provider accepts
    ```
 
    `provider` maps to `spring.ai.model.chat`, so only that provider's auto-configuration activates and the others
    need no credentials. Provider endpoints and keys come from environment variables
    (`OLLAMA_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, …) and never from source.
-4. **The default is local.** The default profile uses Ollama, so DevMate works with no API key and no data leaves
-   the machine. Hosted models are an opt-in profile (e.g. `application-anthropic.yml`, `application-openai.yml`).
+4. **Switching is a comment swap.** `application.yml` has an Anthropic block (active, by the owner's choice) and an
+   Ollama block (commented). Swapping the comments switches provider. Selecting a hosted provider without its API key
+   fails startup with a clear message (`LlmCredentialsCheck`); Ollama needs no key, so no data leaves the machine.
 5. **OpenAI-compatible servers** (LM Studio, vLLM, llama.cpp server, LocalAI, OpenRouter, Groq, Azure OpenAI)
    work through `provider: openai` with `OPENAI_BASE_URL`, which covers almost any other endpoint.
 6. **Capability check at startup.** DevMate needs tool calling. For Ollama, the configured model's capabilities

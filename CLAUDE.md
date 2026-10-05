@@ -24,8 +24,11 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   Don't throw: Spring AI duplicates the message) → `service/` (no MCP types) → `access/` policy → validated `config/` record.
   Errors: `isError=true`, text `REASON: detail`. E2E ITs use the official SDK client (`McpClient.sync`).
 - LLM (ADR-0003, built in M3): agent depends only on DevMate's `LlmClient` port; one `SpringAiLlmClient` adapter covers all
-  providers; `devmate.llm.provider/model` is config only (default local Ollama, `localhost:11434`; installed:
-  `llama3.2:3b`, `qwen2.5-coder:1.5b`, `nomic-embed-text`). Fail fast if the model lacks tool calling. No keys in source.
+  providers; `devmate.llm.provider/model` is config only. `application.yml`: Anthropic block active
+  (`claude-sonnet-5-5`, env `ANTHROPIC_API_KEY`), Ollama block commented (`llama3.2:3b`; also installed:
+  `qwen2.5-coder:1.5b`, `nomic-embed-text`). `spring.ai.*` is derived from `devmate.llm.*`; edit only the top block.
+  `LlmCredentialsCheck` fails startup when a hosted provider has no key. Tests use a dummy key
+  (`src/test/resources/application.properties`); `OllamaLiveIT` is opt-in (`DEVMATE_LIVE_OLLAMA=true`).
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
 - ADRs in `docs/decisions/ADR-NNNN-*.md` with Context / Decision / Alternatives / Consequences.
 
@@ -39,3 +42,4 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   (traversal and symlink escape), secret/VCS/build deny lists, size/binary/limit caps, literal-only search,
   loopback + Origin allowlist. 43 unit + 9 SDK-client ITs green. ADR-0002 (stack/transport).
 - 2026-10-05 — ADR-0003: model-agnostic LLM layer (any provider + local Ollama default), scheduled for M3; PROMPT.md M3 amended.
+- 2026-10-05 — LLM slice pulled forward from M3 (on request): Anthropic + Ollama switchable via commented yml blocks, `LlmClient` port, `SpringAiLlmClient`, `POST /api/chat`, fail-fast key check. Verified live: Ollama llama3.2:3b answered; Anthropic without key fails at startup. M3 (tools/agent) still ⚪.
