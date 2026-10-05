@@ -2,7 +2,8 @@
 
 DevMate: personal AI developer assistant (MCP client + agent), built milestone by milestone (M0–M14).
 Do not start the next milestone without explicit instruction. Each milestone ends with `docs/milestones/M<n>.md`
-and the MILESTONE STATUS summary.
+and the MILESTONE STATUS summary. The full brief and roadmap are in `PROMPT.md`.
+Treat it as the source of truth for scope.
 
 ## Build
 

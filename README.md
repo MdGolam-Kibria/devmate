@@ -61,6 +61,7 @@ OpenTelemetry tracing (`traceId`/`spanId`) comes in a later milestone.
 
 ## Documentation
 
+- [Project prompt & full milestone plan (M0–M14)](PROMPT.md): the original brief DevMate is built from
 - [Architecture overview](docs/architecture/overview.md)
 - [Decisions (ADRs)](docs/decisions)
 - [Milestones](docs/milestones)
