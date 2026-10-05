@@ -2,7 +2,20 @@
 
 DevMate: personal AI developer assistant (MCP client + agent), built milestone by milestone (M0–M14).
 Do not start the next milestone without explicit instruction. Each milestone ends with `docs/milestones/M<n>.md`
-and the MILESTONE STATUS summary. The full brief and roadmap are in `PROMPT.md`.
+and the MILESTONE STATUS summary.
+
+**Every milestone must ship acceptance test cases (mandatory, in addition to unit/IT tests):**
+- `docs/testing/M<n>-<name>-test-cases.md`: a fixture description and a table of cases (ID `TC-nn`, steps/request,
+  expected result) grouped as: startup & configuration · protocol/API · expected behaviour · security/misuse
+  (every refusal case) · transport security & logging. Record the date and result of the last run.
+- `scripts/check-<module>.sh`: runs *every* case against the **packaged jar** (not a test context). It builds its own
+  fixture, starts the app on a free port, prints PASS/FAIL per case, exits 0 only if all pass, and cleans up
+  (`KEEP=1` leaves it running). It must pick a JDK 25 itself, because the shell `JAVA_HOME` here is Java 17.
+- Prove the script isn't vacuous: break one safety property on purpose (e.g. bind `0.0.0.0`) and show the related
+  cases FAIL.
+- The milestone is not COMPLETED until `./mvnw clean verify` **and** the check script both pass. Link the test-case
+  doc from `docs/milestones/M<n>.md` and the module README, and list the case count in the MILESTONE STATUS "Tests".
+- Template: `docs/testing/M1-files-mcp-test-cases.md` + `scripts/check-files-mcp.sh`. The full brief and roadmap are in `PROMPT.md`.
 Treat it as the source of truth for scope.
 When a milestone completes, switch its ⚪ to 🔵 in `PROMPT.md` (roadmap + heading) and in the README Milestones table.
 
@@ -55,3 +68,4 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
 - 2026-10-05 — Thymeleaf chat UI at `/`: provider/model badge, safe Markdown replies, session history, PRG,
   loopback binding, cookie-only Strict sessions, `Enable-Native-Access` manifest (Netty warning on JDK 25). Verified in Chrome against Ollama llama3.2:3b. 103 tests green.
 - 2026-10-05 — Developer guide (`docs/DEVELOPER-GUIDE.md`), browser auto-open on startup, default port 8083, provider-independent LLM tests.
+- 2026-10-05 — M1 acceptance cases (`docs/testing/M1-files-mcp-test-cases.md`, 35 cases) automated in `scripts/check-files-mcp.sh` (35/35 PASS; negative check fails TC-03/TC-33 as expected). New rule: every milestone ships the same.

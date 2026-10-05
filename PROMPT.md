@@ -1354,6 +1354,10 @@ Files Added:
 Tests:
 - ...
 
+Acceptance Test Cases:
+- docs/testing/M<n>-<name>-test-cases.md  (N cases)
+- scripts/check-<module>.sh → N/N PASS
+
 Architecture:
 - ...
 
@@ -1381,7 +1385,9 @@ For every milestone:
 3. Identify files to create/change.
 4. Implement the milestone.
 5. Write tests.
-6. Run tests.
+   - Also write acceptance test cases (docs/testing/M<n>-*-test-cases.md) and a script that runs them
+     against the packaged application (scripts/check-*.sh). *(Amendment 2026-10-05)*
+6. Run tests (mvn clean verify **and** the check script).
 7. Fix issues.
 8. Update documentation.
 9. Provide milestone summary.

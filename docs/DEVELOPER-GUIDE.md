@@ -240,7 +240,26 @@ Reports: `*/target/surefire-reports` (unit), `*/target/failsafe-reports` (integr
 - File-server tests build their own fake project with `TestWorkspace.create(tempDir)`.
 - MCP end-to-end tests use the official SDK client (`McpClient.sync(HttpClientStreamableHttpTransport…)`).
 
-### 6.4 Manual smoke test (5 minutes)
+### 6.4 Acceptance checks (is it really working?)
+
+Each milestone has a test-case document and a script that runs every case against the **packaged app**:
+
+| Milestone | Test cases | Run |
+|---|---|---|
+| M1 Files MCP | [docs/testing/M1-files-mcp-test-cases.md](testing/M1-files-mcp-test-cases.md) (35) | `./scripts/check-files-mcp.sh` |
+
+```text
+$ ./scripts/check-files-mcp.sh
+  PASS  TC-01  refuses to start without DEVMATE_FILESYSTEM_ALLOWED_ROOTS
+  …
+  PASS  TC-20  read_file("escape.txt") symlink pointing outside → ACCESS_DENIED
+  …
+ALL 35 CASES PASSED — the Files MCP server is working.
+```
+
+`KEEP=1 ./scripts/check-files-mcp.sh` leaves the server and fixture running so you can try your own calls.
+
+### 6.5 Manual smoke test (5 minutes)
 
 1. `./mvnw clean verify` ends with **BUILD SUCCESS**.
 2. Start the client (§4.2). The browser opens, and the badge shows your provider/model.
@@ -277,8 +296,10 @@ devmate/
 ├── pom.xml                      versions for everything (Boot, Spring AI, MCP SDK, commonmark)
 ├── PROMPT.md                    full brief + roadmap (🔵 done / ⚪ todo)
 ├── README.md                    overview + quick start
+├── scripts/check-*.sh           acceptance checks per milestone (run against the real jar)
 ├── docs/
 │   ├── DEVELOPER-GUIDE.md       this file
+│   ├── testing/M*-test-cases.md acceptance test cases per milestone
 │   ├── architecture/overview.md
 │   ├── decisions/ADR-000*.md    why things are the way they are
 │   └── milestones/M*.md         what each milestone delivered

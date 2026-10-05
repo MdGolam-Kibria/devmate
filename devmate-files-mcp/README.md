@@ -114,6 +114,16 @@ curl -s "${H[@]}" -H "Mcp-Session-Id: $SID" localhost:8091/mcp -d '{"jsonrpc":"2
 
 ## Test
 
+**Is it working? One command:**
+
+```bash
+./scripts/check-files-mcp.sh     # builds a fixture, starts the jar, runs 35 cases → "ALL 35 CASES PASSED"
+```
+
+The cases are listed in [docs/testing/M1-files-mcp-test-cases.md](../docs/testing/M1-files-mcp-test-cases.md).
+
+Maven suites:
+
 ```bash
 ./mvnw -pl devmate-files-mcp verify                        # 43 unit + 9 integration tests
 ./mvnw -pl devmate-files-mcp test -Dtest=FileAccessPolicyTest
