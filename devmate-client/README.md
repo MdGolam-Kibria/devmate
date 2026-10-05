@@ -109,6 +109,7 @@ java -jar devmate-client/target/devmate-client-0.1.0-SNAPSHOT.jar
 | Model (either provider) | `DEVMATE_LLM_MODEL` | from the active block |
 | Ollama URL | `OLLAMA_BASE_URL` | `http://localhost:11434` |
 | Anthropic key | `ANTHROPIC_API_KEY` | none |
+| Attempts on provider error | `DEVMATE_LLM_MAX_ATTEMPTS` | `2` (Spring AI default 10 would hang minutes) |
 
 IntelliJ: run `dev.devmate.client.DevMateClientApplication` with SDK `ms-25.0.4.1`; set env vars in the run configuration.
 
@@ -124,6 +125,18 @@ IntelliJ: run `dev.devmate.client.DevMateClientApplication` with SDK `ms-25.0.4.
 ---
 
 ## Test
+
+**Do the messages I send from the UI work? One command:**
+
+```bash
+./scripts/check-client.sh          # 34 example messages/actions → "ALL 34 CASES PASSED"
+LIVE=1 ./scripts/check-client.sh   # + 3 against your real Ollama
+```
+
+The example messages and expected results are in
+[docs/testing/UI-chat-test-cases.md](../docs/testing/UI-chat-test-cases.md). Try them by hand in the UI too.
+
+Maven suites:
 
 ```bash
 ./mvnw -pl devmate-client verify                       # all client tests (≈55)

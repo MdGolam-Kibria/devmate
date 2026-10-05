@@ -33,6 +33,12 @@ devmate:
 # Wiring: derived from devmate.llm above. Don't edit; switch providers in the block above.
 spring:
   ai:
+    retry:                            # Spring AI default is 10 attempts, 2s ×5 backoff: minutes of waiting
+      max-attempts: ${DEVMATE_LLM_MAX_ATTEMPTS:2}
+      backoff:
+        initial-interval: 1s
+        multiplier: 2
+        max-interval: 5s
     model:
       chat: ${devmate.llm.provider}   # activates only the selected provider's ChatModel
       embedding: none                 # embeddings arrive with RAG (M6)

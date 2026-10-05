@@ -111,6 +111,7 @@ page**. The browser does not open when:
 | Auto-open browser | `DEVMATE_OPEN_BROWSER` | `true` |
 | LLM timeout (Anthropic) | `DEVMATE_LLM_TIMEOUT` | `120s` |
 | Session length | `DEVMATE_SESSION_TIMEOUT` | `8h` |
+| LLM attempts on provider error | `DEVMATE_LLM_MAX_ATTEMPTS` | `2` |
 | Debug logs + health details | `SPRING_PROFILES_ACTIVE=dev` | off |
 | JSON logs | `SPRING_PROFILES_ACTIVE=json-logs` | off |
 
@@ -247,6 +248,7 @@ Each milestone has a test-case document and a script that runs every case agains
 | Milestone | Test cases | Run |
 |---|---|---|
 | M1 Files MCP | [docs/testing/M1-files-mcp-test-cases.md](testing/M1-files-mcp-test-cases.md) (35) | `./scripts/check-files-mcp.sh` |
+| Web UI chat | [docs/testing/UI-chat-test-cases.md](testing/UI-chat-test-cases.md) (34 + 3 live) | `./scripts/check-client.sh` (`LIVE=1` for real Ollama) |
 
 ```text
 $ ./scripts/check-files-mcp.sh

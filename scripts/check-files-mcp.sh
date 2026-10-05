@@ -15,28 +15,15 @@
 set -uo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
+source "$ROOT_DIR/scripts/support/common.sh"
 PORT=${PORT:-18191}
 URL="http://127.0.0.1:${PORT}/mcp"
-# Use JAVA_HOME only if it is JDK 25+; otherwise fall back to a JDK 25 under ~/.jdks or /usr/lib/jvm.
-java_major() { "$1/bin/java" -version 2>&1 | grep -oE 'version "[0-9]+' | grep -oE '[0-9]+$'; }
-pick_jdk() {
-    local candidate
-    for candidate in "${JAVA_HOME:-}" "$HOME"/.jdks/*25* /usr/lib/jvm/*25*; do
-        [[ -n "$candidate" && -x "$candidate/bin/java" ]] || continue
-        [[ $(java_major "$candidate") -ge 25 ]] 2>/dev/null && { echo "$candidate"; return; }
-    done
-}
 JAVA_HOME=$(pick_jdk)
 JAVA="$JAVA_HOME/bin/java"
 JAR="$ROOT_DIR/devmate-files-mcp/target/devmate-files-mcp-0.1.0-SNAPSHOT.jar"
 WORK=$(mktemp -d -t devmate-m1-XXXX)
 LOG="$WORK/server.log"
 SERVER_PID=""
-PASSED=0
-FAILED=0
-
-green() { printf '\033[32m%s\033[0m' "$1"; }
-red()   { printf '\033[31m%s\033[0m' "$1"; }
 
 cleanup() {
     if [[ -n "$SERVER_PID" && -z "${KEEP:-}" ]]; then kill "$SERVER_PID" 2>/dev/null; fi
@@ -44,20 +31,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# result <id> <description> <true|false> [actual-on-failure]
-result() {
-    if [[ "$3" == true ]]; then
-        PASSED=$((PASSED + 1)); printf '  %s  %-6s %s\n' "$(green PASS)" "$1" "$2"
-    else
-        FAILED=$((FAILED + 1)); printf '  %s  %-6s %s\n' "$(red FAIL)" "$1" "$2"
-        [[ -n "${4:-}" ]] && printf '                actual: %s\n' "${4:0:300}"
-    fi
-}
 
 # ── prerequisites ─────────────────────────────────────────────────────────────────────────────
-for tool in curl jq; do
-    command -v "$tool" >/dev/null || { echo "missing prerequisite: $tool"; exit 2; }
-done
+require_tools curl jq
 [[ -n "$JAVA_HOME" ]] || { echo "JDK 25+ not found: set JAVA_HOME to a JDK 25 (the system java is $(java -version 2>&1 | head -1))"; exit 2; }
 if [[ ! -f "$JAR" ]]; then
     echo "Building devmate-files-mcp…"

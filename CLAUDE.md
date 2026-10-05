@@ -15,7 +15,11 @@ and the MILESTONE STATUS summary.
   cases FAIL.
 - The milestone is not COMPLETED until `./mvnw clean verify` **and** the check script both pass. Link the test-case
   doc from `docs/milestones/M<n>.md` and the module README, and list the case count in the MILESTONE STATUS "Tests".
-- Template: `docs/testing/M1-files-mcp-test-cases.md` + `scripts/check-files-mcp.sh`. The full brief and roadmap are in `PROMPT.md`.
+- Templates: `docs/testing/M1-files-mcp-test-cases.md` + `scripts/check-files-mcp.sh`; UI/LLM features:
+  `docs/testing/UI-chat-test-cases.md` + `scripts/check-client.sh` (deterministic fake model
+  `scripts/support/fake_ollama.py`, keyword-driven: MARKDOWN/XSS/FAIL/echo; `LIVE=1` for real Ollama).
+  Shared helpers live in `scripts/support/common.sh` (`pick_jdk`, `result`, `wait_for_health`, `summary`).
+- Any UI-facing feature must add example-message cases to `UI-chat-test-cases.md` and `check-client.sh`. The full brief and roadmap are in `PROMPT.md`.
 Treat it as the source of truth for scope.
 When a milestone completes, switch its ⚪ to 🔵 in `PROMPT.md` (roadmap + heading) and in the README Milestones table.
 
@@ -40,6 +44,7 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   providers; `devmate.llm.provider/model` is config only. `application.yml`: Anthropic block active
   (`claude-sonnet-5-5`, env `ANTHROPIC_API_KEY`), Ollama block commented (`llama3.2:3b`; also installed:
   `qwen2.5-coder:1.5b`, `nomic-embed-text`). `spring.ai.*` is derived from `devmate.llm.*`; edit only the top block.
+  `spring.ai.retry` is capped (`DEVMATE_LLM_MAX_ATTEMPTS`=2) because the default of 10 × 2 s·5 hangs the UI for minutes.
   `LlmCredentialsCheck` fails startup when a hosted provider has no key. Tests use a dummy key
   (`src/test/resources/application.properties`); `OllamaLiveIT` is opt-in (`DEVMATE_LIVE_OLLAMA=true`).
 - Web UI (`ui/`): Thymeleaf `templates/chat.html` + `static/css/devmate.css`, `ChatPageController` (POST→redirect→GET),
@@ -69,3 +74,4 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   loopback binding, cookie-only Strict sessions, `Enable-Native-Access` manifest (Netty warning on JDK 25). Verified in Chrome against Ollama llama3.2:3b. 103 tests green.
 - 2026-10-05 — Developer guide (`docs/DEVELOPER-GUIDE.md`), browser auto-open on startup, default port 8083, provider-independent LLM tests.
 - 2026-10-05 — M1 acceptance cases (`docs/testing/M1-files-mcp-test-cases.md`, 35 cases) automated in `scripts/check-files-mcp.sh` (35/35 PASS; negative check fails TC-03/TC-33 as expected). New rule: every milestone ships the same.
+- 2026-10-05 — Web UI example-message cases (`docs/testing/UI-chat-test-cases.md`, 34 + 3 live) automated in `scripts/check-client.sh` with a fake Ollama; 34/34 and 37/37 (LIVE) PASS. Found and fixed: Spring AI default retry hung provider errors for minutes, now capped.
