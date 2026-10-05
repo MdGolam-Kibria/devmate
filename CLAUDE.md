@@ -29,6 +29,12 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   `qwen2.5-coder:1.5b`, `nomic-embed-text`). `spring.ai.*` is derived from `devmate.llm.*`; edit only the top block.
   `LlmCredentialsCheck` fails startup when a hosted provider has no key. Tests use a dummy key
   (`src/test/resources/application.properties`); `OllamaLiveIT` is opt-in (`DEVMATE_LIVE_OLLAMA=true`).
+- Web UI (`ui/`): Thymeleaf `templates/chat.html` + `static/css/devmate.css`, `ChatPageController` (POST→redirect→GET),
+  `@SessionScope ChatHistory` (cap 100). Assistant text → `MarkdownRenderer` (commonmark, `escapeHtml` + `sanitizeUrls`)
+  → `th:utext`; everything else `th:text`. Sessions are cookie-only (`tracking-modes: cookie`, `SameSite=Strict`);
+  URL rewriting put `;jsessionid` in redirects, which caused 404s. The client binds `127.0.0.1` by default.
+- Local runs: never `pkill -f`/`pgrep -f` with a pattern that's in your own command line (it kills the shell, exit 144).
+  Start with `&`, save `$!`, kill that PID.
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
 - ADRs in `docs/decisions/ADR-NNNN-*.md` with Context / Decision / Alternatives / Consequences.
 
@@ -43,3 +49,5 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   loopback + Origin allowlist. 43 unit + 9 SDK-client ITs green. ADR-0002 (stack/transport).
 - 2026-10-05 — ADR-0003: model-agnostic LLM layer (any provider + local Ollama default), scheduled for M3; PROMPT.md M3 amended.
 - 2026-10-05 — LLM slice pulled forward from M3 (on request): Anthropic + Ollama switchable via commented yml blocks, `LlmClient` port, `SpringAiLlmClient`, `POST /api/chat`, fail-fast key check. Verified live: Ollama llama3.2:3b answered; Anthropic without key fails at startup. M3 (tools/agent) still ⚪.
+- 2026-10-05 — Thymeleaf chat UI at `/`: provider/model badge, safe Markdown replies, session history, PRG,
+  loopback binding, cookie-only Strict sessions, `Enable-Native-Access` manifest (Netty warning on JDK 25). Verified in Chrome against Ollama llama3.2:3b. 103 tests green.

@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/chat")
 public class ChatController {
 
-    public record ChatRequest(@NotBlank @Size(max = 8000) String message) {}
+    public record ChatRequest(@NotBlank @Size(max = LlmRequest.MAX_USER_MESSAGE_LENGTH) String message) {}
 
     public record ChatReply(String provider, String model, String reply, Integer inputTokens, Integer outputTokens,
                             long durationMs) {}
@@ -50,7 +50,7 @@ public class ChatController {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, String>> invalid(MethodArgumentNotValidException e) {
-        return ResponseEntity.badRequest()
-                .body(Map.of("error", "INVALID_REQUEST", "message", "message must be 1-8000 characters"));
+        return ResponseEntity.badRequest().body(Map.of("error", "INVALID_REQUEST",
+                "message", "message must be 1-" + LlmRequest.MAX_USER_MESSAGE_LENGTH + " characters"));
     }
 }

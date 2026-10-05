@@ -99,7 +99,21 @@ curl -s -X POST localhost:8080/api/chat -H 'Content-Type: application/json' \
 | `DEVMATE_LLM_MODEL` | both       | per block above          |
 | `DEVMATE_LLM_TIMEOUT` | anthropic | `120s`                  |
 
-`/api/chat` is plain chat to confirm a provider works. Tool calling and the agent arrive in M3.
+## Web UI
+
+Open **http://localhost:8080/** for a chat page (Thymeleaf, server-rendered, works without JavaScript):
+
+- The badge shows the active provider and model. "New chat" clears the conversation.
+- Replies are rendered from Markdown (lists, code blocks, tables) with raw HTML escaped and unsafe links removed.
+- History lives in your browser session (last 100 messages). Each question is still sent to the model on its own;
+  conversation memory arrives with the M3 agent.
+- The app listens on `127.0.0.1` by default (`DEVMATE_ADDRESS` to change). There is no login until M13, and the
+  session cookie is `HttpOnly` + `SameSite=Strict`.
+
+When overriding from the command line, set **both** provider and model, e.g.
+`--devmate.llm.provider=ollama --devmate.llm.model=llama3.2:3b`. Otherwise the model from the active YAML block is kept.
+
+`/api/chat` (JSON) is plain chat to confirm a provider works. Tool calling and the agent arrive in M3.
 Live check against local Ollama: `DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT`.
 
 ## Configuration

@@ -5,6 +5,9 @@ import java.util.Objects;
 /** A single-turn request. {@code systemPrompt} may be null. Tool definitions are added in M3. */
 public record LlmRequest(String systemPrompt, String userMessage) {
 
+    /** Longest user message accepted from the API or the UI. */
+    public static final int MAX_USER_MESSAGE_LENGTH = 8000;
+
     public LlmRequest {
         Objects.requireNonNull(userMessage, "userMessage");
     }

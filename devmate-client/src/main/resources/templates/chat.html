@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DevMate</title>
+    <link rel="stylesheet" th:href="@{/css/devmate.css}">
+</head>
+<body>
+<div class="app">
+    <header class="topbar">
+        <div class="brand">
+            <span class="logo" aria-hidden="true">◆</span>
+            <span>DevMate</span>
+        </div>
+        <div class="model-badge" th:title="|Provider ${provider}, model ${model}|">
+            <span class="dot" aria-hidden="true"></span>
+            <span th:text="${provider}">anthropic</span>
+            <span class="sep">/</span>
+            <code th:text="${model}">claude-sonnet-5-5</code>
+        </div>
+        <form th:action="@{/chat/clear}" method="post" th:if="${!entries.isEmpty()}">
+            <button type="submit" class="ghost">New chat</button>
+        </form>
+    </header>
+
+    <main class="conversation" id="conversation" aria-live="polite">
+        <div class="empty" th:if="${entries.isEmpty()}">
+            <h1>Ask DevMate</h1>
+            <p>Plain chat with the configured model. Code and tool-aware answers arrive with the agent (M3).</p>
+            <div class="suggestions">
+                <button type="button" class="suggestion" data-text="In two sentences, what is the outbox pattern?">
+                    What is the outbox pattern?
+                </button>
+                <button type="button" class="suggestion" data-text="List 3 common causes of Kafka consumer lag.">
+                    Causes of Kafka consumer lag
+                </button>
+                <button type="button" class="suggestion" data-text="Kafka কী? দুই বাক্যে বলো।">
+                    Kafka কী?
+                </button>
+            </div>
+        </div>
+
+        <article th:each="entry : ${entries}" class="message"
+                 th:classappend="${entry.role().name().toLowerCase()}">
+            <div class="avatar" aria-hidden="true"
+                 th:text="${entry.role().name() == 'USER'} ? 'You' : (${entry.role().name() == 'ERROR'} ? '!' : 'DM')">DM</div>
+            <div class="bubble">
+                <!--/* html is commonmark output with raw HTML escaped and URLs sanitised (MarkdownRenderer) */-->
+                <div class="text markdown" th:if="${entry.html() != null}" th:utext="${entry.html()}">Reply</div>
+                <div class="text" th:unless="${entry.html() != null}" th:text="${entry.text()}">Message text</div>
+                <div class="details" th:if="${entry.details() != null}" th:text="${entry.details()}">model · tokens</div>
+            </div>
+        </article>
+
+        <article class="message assistant pending" id="pending" hidden>
+            <div class="avatar" aria-hidden="true">DM</div>
+            <div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>
+        </article>
+    </main>
+
+    <footer class="composer-wrap">
+        <p class="form-error" th:if="${formError}" th:text="${formError}" role="alert">error</p>
+        <form th:action="@{/chat}" method="post" class="composer" id="composer">
+            <label for="message" class="visually-hidden">Message</label>
+            <textarea id="message" name="message" rows="1" required autofocus
+                      th:attr="maxlength=${maxLength}" th:text="${draft}"
+                      placeholder="Message DevMate…  (Enter to send, Shift+Enter for a new line)"></textarea>
+            <button type="submit" id="send" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path d="M3 20.5v-6.2l9-2.3-9-2.3V3.5L22 12z" fill="currentColor"/>
+                </svg>
+            </button>
+        </form>
+        <p class="hint" th:text="${provider == 'ollama'}
+                ? 'Answers can be wrong. Runs on your local Ollama; nothing leaves this machine.'
+                : |Answers can be wrong. Messages are sent to ${provider}.|">Answers can be wrong.</p>
+    </footer>
+</div>
+
+<script>
+    // Progressive enhancement only: the form works without this script.
+    (() => {
+        const form = document.getElementById('composer');
+        const box = document.getElementById('message');
+        const send = document.getElementById('send');
+        const conversation = document.getElementById('conversation');
+
+        const grow = () => { box.style.height = 'auto'; box.style.height = Math.min(box.scrollHeight, 220) + 'px'; };
+        box.addEventListener('input', grow);
+        grow();
+
+        box.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                if (box.value.trim()) form.requestSubmit();
+            }
+        });
+
+        form.addEventListener('submit', () => {
+            send.disabled = true;
+            box.readOnly = true;
+            document.getElementById('pending').hidden = false;
+            conversation.scrollTop = conversation.scrollHeight;
+        });
+
+        document.querySelectorAll('.suggestion').forEach(b => b.addEventListener('click', () => {
+            box.value = b.dataset.text;
+            grow();
+            form.requestSubmit();
+        }));
+
+        conversation.scrollTop = conversation.scrollHeight;
+    })();
+</script>
+</body>
+</html>

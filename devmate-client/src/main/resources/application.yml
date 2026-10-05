@@ -53,12 +53,24 @@ spring:
 
 ---
 server:
+  address: ${DEVMATE_ADDRESS:127.0.0.1}   # loopback by default: the UI can spend LLM tokens and has no auth yet
   port: ${DEVMATE_PORT:8080}
   shutdown: graceful
+  servlet:
+    session:
+      tracking-modes: cookie        # never put the session id in URLs
+      timeout: ${DEVMATE_SESSION_TIMEOUT:8h}
+      cookie:
+        http-only: true
+        same-site: strict           # cross-site form posts carry no session: CSRF protection for the UI
   error:
     include-stacktrace: never
     include-message: never
 
+spring.thymeleaf:
+  cache: ${DEVMATE_TEMPLATE_CACHE:true}
+
+---
 management:
   endpoints:
     web:
