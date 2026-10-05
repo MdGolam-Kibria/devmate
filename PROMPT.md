@@ -526,6 +526,11 @@ This is the first major MCP milestone.
 
 # MILESTONE 3 — LLM INTEGRATION
 
+> **Amendment (2026-10-05):** DevMate must be able to use **any model**: hosted providers (Claude, OpenAI,
+> Google, Mistral, DeepSeek, Bedrock, Azure OpenAI, any OpenAI-compatible server) **and local Ollama models**
+> (e.g. `llama3.2:3b`, `qwen2.5-coder:1.5b`). Provider + model are configuration only; the default is local Ollama.
+> See [ADR-0003](docs/decisions/ADR-0003-model-agnostic-llm.md).
+
 Integrate an LLM abstraction.
 
 Create an abstraction such as:

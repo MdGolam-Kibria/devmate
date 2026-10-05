@@ -37,6 +37,9 @@ systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through
 | MCP Java SDK  | 2.0.1                       |
 | Spring AI     | 2.0.1 (MCP server starter)  |
 
+LLM (from M3): any provider via configuration, with local Ollama by default and hosted models (Claude, OpenAI, …) opt-in.
+See [ADR-0003](docs/decisions/ADR-0003-model-agnostic-llm.md).
+
 Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md), [ADR-0002](docs/decisions/ADR-0002-mcp-server-stack.md).
 
 ## Modules

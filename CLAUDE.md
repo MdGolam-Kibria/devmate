@@ -23,6 +23,9 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   importing `mcp-bom` before `spring-ai-bom`. Layout: `tools/` adapter (`@McpTool`, returns `CallToolResult` itself.
   Don't throw: Spring AI duplicates the message) → `service/` (no MCP types) → `access/` policy → validated `config/` record.
   Errors: `isError=true`, text `REASON: detail`. E2E ITs use the official SDK client (`McpClient.sync`).
+- LLM (ADR-0003, built in M3): agent depends only on DevMate's `LlmClient` port; one `SpringAiLlmClient` adapter covers all
+  providers; `devmate.llm.provider/model` is config only (default local Ollama, `localhost:11434`; installed:
+  `llama3.2:3b`, `qwen2.5-coder:1.5b`, `nomic-embed-text`). Fail fast if the model lacks tool calling. No keys in source.
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
 - ADRs in `docs/decisions/ADR-NNNN-*.md` with Context / Decision / Alternatives / Consequences.
 
@@ -35,3 +38,4 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
 - 2026-10-05 — M1 Files MCP: `devmate-files-mcp` with `list_files`/`read_file`/`search_code`. Real-path sandbox
   (traversal and symlink escape), secret/VCS/build deny lists, size/binary/limit caps, literal-only search,
   loopback + Origin allowlist. 43 unit + 9 SDK-client ITs green. ADR-0002 (stack/transport).
+- 2026-10-05 — ADR-0003: model-agnostic LLM layer (any provider + local Ollama default), scheduled for M3; PROMPT.md M3 amended.
