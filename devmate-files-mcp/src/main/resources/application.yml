@@ -16,8 +16,10 @@ spring:
         protocol: streamable
         request-timeout: ${DEVMATE_FILES_MCP_REQUEST_TIMEOUT:30s}
         instructions: >
-          Read-only access to source files under the configured allowed roots. Use search_code to locate code,
-          list_files to explore directories and read_file to inspect a file.
+          Read-only access to source files under the configured allowed roots. Start with folder_overview (what
+          kind of project, file types, key files) and folder_tree (layout); use find_files to locate files by
+          name, search_code to locate code (contextLines for surrounding lines), list_files for one directory's
+          details and read_file to inspect a file (startLine/endLine for large files).
         capabilities:      # tools only: smallest surface
           tool: true
           resource: false
@@ -50,7 +52,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info
+        # Deny by default. Add 'metrics' (DEVMATE_ACTUATOR_EXPOSURE=health,info,metrics) to read the per-tool
+        # timer devmate.mcp.tool.calls at /actuator/metrics/devmate.mcp.tool.calls; it holds no paths or content.
+        include: ${DEVMATE_ACTUATOR_EXPOSURE:health, info}
   endpoint:
     health:
       show-details: never

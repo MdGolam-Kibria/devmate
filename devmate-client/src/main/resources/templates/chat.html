@@ -162,7 +162,12 @@
                 <div class="text" th:unless="${entry.html() != null}" th:text="${entry.text()}">Message text</div>
                 <details class="tools" th:if="${!entry.tools().isEmpty()}">
                     <summary th:text="|Tools used (${entry.tools().size()})|">Tools used</summary>
-                    <ol><li th:each="tool : ${entry.tools()}"><code th:text="${tool}">search_code {}</code></li></ol>
+                    <ol>
+                        <li th:each="tool : ${entry.tools()}" th:classappend="${tool.error()} ? 'error'">
+                            <code th:text="${tool.call()}">search_code {}</code>
+                            <span class="outcome" th:text="|→ ${tool.outcome()} · ${tool.durationMs()} ms|">→ matches=3 · 12 ms</span>
+                        </li>
+                    </ol>
                 </details>
                 <div class="details" th:if="${entry.details() != null}" th:text="${entry.details()}">model · tokens</div>
             </div>

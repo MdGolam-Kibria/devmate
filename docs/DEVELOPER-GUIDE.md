@@ -138,7 +138,10 @@ only when that profile is active (`--spring.profiles.active=dev`, or "Active pro
    folder** (or **Open** on a row). **Type a path instead** is still there. The picker starts in your home folder
    (`DEVMATE_BROWSE_START`).
 4. Ask, e.g. *"What does this project do?"*, *"Where is Kafka used?"*, *"এই project-এ Kafka কোথায় ব্যবহার করা হয়েছে?"*.
-   Expand **Tools used** under the answer to see each `search_code` / `read_file` / `list_files` call.
+   Expand **Tools used** under the answer to see each call (`folder_overview`, `folder_tree`, `find_files`,
+   `search_code`, `read_file`, `list_files`) with its outcome, e.g. `→ matches=3 filesScanned=40 truncated=false · 12 ms`,
+   or `→ error: ACCESS_DENIED: …` in red. DevMate also puts a short folder overview (file counts, file types, build and
+   config files, recently changed files) into the model's system prompt, so even a small model knows the project.
 5. **Close folder** returns to plain chat. The open folder is per browser session.
 
 **A folder outside the allowed roots** (every folder, when none are configured): opening it shows a popup, **"Allow
@@ -282,8 +285,8 @@ Each milestone has a test-case document and a script that runs every case agains
 
 | Milestone | Test cases | Run |
 |---|---|---|
-| M1 Files MCP | [docs/testing/M1-files-mcp-test-cases.md](testing/M1-files-mcp-test-cases.md) (35) | `./scripts/check-files-mcp.sh` |
-| Web UI chat | [docs/testing/UI-chat-test-cases.md](testing/UI-chat-test-cases.md) (34 + 3 live) | `./scripts/check-client.sh` (`LIVE=1` for real Ollama) |
+| M1 Files MCP | [docs/testing/M1-files-mcp-test-cases.md](testing/M1-files-mcp-test-cases.md) (56) | `./scripts/check-files-mcp.sh` |
+| Web UI chat | [docs/testing/UI-chat-test-cases.md](testing/UI-chat-test-cases.md) (89 + 4 live) | `./scripts/check-client.sh` (`LIVE=1` for real Ollama) |
 
 ```text
 $ ./scripts/check-files-mcp.sh

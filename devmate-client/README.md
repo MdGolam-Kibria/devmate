@@ -78,6 +78,7 @@ POST /folder path=/home/me/shop   ChatPageController → FolderAssistant.open
 POST /chat "Where is Kafka used?"  FolderAssistant.ask
                                     ├─ list_files again (folder still allowed?), entries → system prompt
                                     ├─ MCP tools/list → keep tools with readOnlyHint=true and a `path` parameter
+                                    ├─ folder_overview (if offered) → digest in the system prompt
                                     │                   → LlmTool(name, description, inputSchema, handler)
                                     └─ LlmClient.chat(system, question, tools, maxToolRounds=8)
                                          SpringAiLlmClient loop:
@@ -85,19 +86,25 @@ POST /chat "Where is Kafka used?"  FolderAssistant.ask
                                            handler: FolderScope pins path to /home/me/shop (refuses ../, /etc)
                                                     MCP tools/call  ──► files MCP (real-path sandbox, deny lists)
                                            result (cut at 30 000 chars) → model → … → final answer
-                                  ChatHistory: answer + "Tools used (N)" list
+                                  ChatHistory: answer + "Tools used (N)": each call → outcome · ms
 ```
 
-- **No tool is hard-coded in the agent.** The tool list comes from `tools/list` on every question. DevMate offers
-  only tools that are read-only and take a `path`, because those are the ones it can pin to the folder. Opening a
-  folder uses `list_files`.
+- **No tool is hard-coded in the agent's tool list.** It comes from `tools/list` on every question. DevMate offers
+  only tools that are read-only and take a `path`, because those are the ones it can pin to the folder. Two tools are
+  called by name: opening a folder uses `list_files`, and if the server offers `folder_overview` its result goes into
+  the system prompt as a short digest (`42 files in 7 directories, 200 KB` · top file types · build/config files ·
+  recently modified). So even a model that calls no tools knows what kind of project it's in.
+- **Tool outcomes are visible.** Each "Tools used" line shows the call and its outcome: the result's top-level counts
+  and flags (`matches=3 filesScanned=40 truncated=false`, `size=… lineCount=…`), or `error: <REASON: detail>` in red,
+  plus the duration. Never the content. `/api/folder/ask` returns the same as `toolCalls[].summary` / `durationMs`.
 - **Two boundaries:** the files MCP server enforces the real security sandbox (allowed roots, real paths and
   symlinks, `.env`/keys denied, `target/` and `.git/` hidden). `FolderScope` also keeps the model inside the folder
   you opened, even when the server allows more. Its check is lexical: a symlink inside the folder that points
   elsewhere inside the allowed roots is still readable. The server's real-path check is the hard limit.
 - Tool errors (`ACCESS_DENIED: …`, `NOT_FOUND: …`) go back to the model as tool results, so it can try something
   else. A server that's down stops the answer with "Files MCP server is not reachable at …".
-- Logs show tool name, outcome and latency, never arguments or file contents.
+- Logs show tool name, outcome and latency, never arguments or file contents. The files MCP server logs each call's
+  result counts too, and can expose a per-tool timer (see its README).
 
 ### How the provider switch works
 
@@ -225,7 +232,7 @@ skip the tool. Naming the tool in the question helps ("…use search_code"). Cla
 **Do the messages I send from the UI work? One command:**
 
 ```bash
-./scripts/check-client.sh          # 69 example messages/actions → "ALL 69 CASES PASSED"
+./scripts/check-client.sh          # 89 example messages/actions → "ALL 89 CASES PASSED"
 LIVE=1 ./scripts/check-client.sh   # + 4 against your real Ollama (incl. a folder question)
 ```
 
@@ -235,7 +242,7 @@ The example messages and expected results are in
 Maven suites:
 
 ```bash
-./mvnw -pl devmate-client verify                       # all client tests (58 unit + 49 IT)
+./mvnw -pl devmate-client verify                       # all client tests (70 unit + 54 IT)
 ./mvnw -pl devmate-client test -Dtest=MarkdownRendererTest
 ./mvnw -pl devmate-client verify -Dit.test=ChatPageIT
 DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT   # real Ollama call

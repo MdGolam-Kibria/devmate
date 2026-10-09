@@ -262,6 +262,35 @@ result UI-52 "system prompt names the folder and its entries, not hidden ones" \
 p=$(send "এই project-এ Kafka কোথায় ব্যবহার করা হয়েছে? SEARCH KafkaTemplate")
 result UI-53 "Bangla question about the folder → tool answer" "$(both "$(has "$p" 'এই project-এ Kafka')" "$(has "$p" 'OrderService.java')")"
 
+echo; echo "Folder insight: tool outcomes and whole-folder tools"
+fresh() { curl -s -o /dev/null -c "$JAR_COOKIES" -b "$JAR_COOKIES" -X POST "$BASE/chat/clear"; send "$1"; }   # one reply on the page
+p=$(fresh "SEARCH KafkaTemplate")
+result UI-82 "'Tools used' shows each call's outcome: counts, truncated flag and duration" \
+    "$([[ $p =~ '→ matches=1 filesMatched=1 filesScanned='[0-9]+' truncated=false · '[0-9]+' ms' ]] && echo true || echo false)"
+p=$(fresh "READ .env")
+result UI-83 "…a refused call shows 'error:' and the server's reason, styled as an error" \
+    "$(both "$(has "$p" 'class="error"')" "$(has "$p" '→ error: ACCESS_DENIED: path is excluded by policy')")"
+p=$(fresh "TREE")
+result UI-84 "'TREE' → folder_tree: nested layout down to OrderService.java, no .env/target/.git" \
+    "$(both "$(has "$p" 'src/\n  main/\n    java/\n      demo/\n        OrderService.java')" \
+            "$([[ $p != *'.env'* && $p != *'target/'* && $p != *'.git/'* ]] && echo true || echo false)")"
+p=$(fresh "FIND *.java")
+result UI-85 "'FIND *.java' → find_files: OrderService.java only, not target/Generated.java" \
+    "$(both "$(has "$p" 'OrderService.java')" "$([[ $p != *'Generated.java'* ]] && echo true || echo false)")"
+p=$(fresh "OVERVIEW")
+result UI-86 "'OVERVIEW' → folder_overview: 2 files, java + md, README found; .env not counted" \
+    "$(both "$(has "$p" '&quot;files&quot;:2,')" "$(has "$p" '&quot;kind&quot;:&quot;README&quot;')")"
+p=$(fresh "RANGE src/main/java/demo/OrderService.java 3 4")
+result UI-87 "'RANGE <file> 3 4' → read_file returns just lines 3-4" \
+    "$(both "$(has "$p" 'class OrderService {')" "$([[ $p != *'package demo'* ]] && echo true || echo false)")"
+p=$(fresh "SYSTEM")
+result UI-88 "system prompt carries the folder overview (counts, README), never .env" \
+    "$(both "$(both "$(has "$p" 'Folder overview')" "$(has "$p" '2 files in 4 directories')")" \
+            "$(both "$(has "$p" 'README.md (README)')" "$([[ $p != *'.env'* ]] && echo true || echo false)")")"
+r=$(ask_api "$PROJECT" "SEARCH KafkaTemplate")
+result UI-89 "API toolCalls carry summary and durationMs" \
+    "$(head -n -1 <<<"$r" | jq -r '.toolCalls[0] | (.summary | startswith("matches=1 ")) and (.durationMs >= 0)')" "$r"
+
 JAR_COOKIES="$WORK/cookies-folder-b"
 p=$(page)
 result UI-54 "a second browser has no folder open (per session)" "$(has "$p" 'No folder open')"

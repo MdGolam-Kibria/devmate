@@ -13,6 +13,10 @@ Tool calling (only when DevMate sent tool definitions, i.e. a folder is open). K
   "SEARCH <text>"      -> calls search_code {"query": text}
   "READ <path>"        -> calls read_file {"path": path}
   "LIST"               -> calls list_files {}
+  "TREE"               -> calls folder_tree {"depth": 8}
+  "FIND <glob>"        -> calls find_files {"glob": glob}
+  "OVERVIEW"           -> calls folder_overview {}
+  "RANGE <path> <a> <b>" -> calls read_file {"path": path, "startLine": a, "endLine": b}
   "LOOP"               -> calls list_files on every round (DevMate must stop it)
   "SYSTEM"             -> replies with the system prompt it received
 Once tool results are in the conversation it replies "From the tools:" followed by each result (first 600 chars).
@@ -136,6 +140,15 @@ class Handler(BaseHTTPRequestHandler):
             call = ("read_file", {"path": words[words.index("READ") + 1]})
         elif not results and "LIST" in words:
             call = ("list_files", {})
+        elif not results and "TREE" in words:
+            call = ("folder_tree", {"depth": 8})
+        elif not results and "FIND" in words and words.index("FIND") + 1 < len(words):
+            call = ("find_files", {"glob": words[words.index("FIND") + 1]})
+        elif not results and "OVERVIEW" in words:
+            call = ("folder_overview", {})
+        elif not results and "RANGE" in words and words.index("RANGE") + 3 < len(words):
+            i = words.index("RANGE")
+            call = ("read_file", {"path": words[i + 1], "startLine": int(words[i + 2]), "endLine": int(words[i + 3])})
         elif "SYSTEM" in user:
             system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
             return self._reply(request, "System prompt was: " + system)

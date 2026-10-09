@@ -55,6 +55,7 @@ class FilesMcpServerIT {
         registry.add("devmate.filesystem.allow-client-roots", () -> "false");
         registry.add("devmate.filesystem.max-file-size", () -> TestWorkspace.MAX_FILE_SIZE.toBytes() + "B");
         registry.add("devmate.http.allowed-origins", () -> "http://localhost:6274");
+        registry.add("management.endpoints.web.exposure.include", () -> "health,info,metrics");
     }
 
     @BeforeAll
@@ -84,11 +85,11 @@ class FilesMcpServerIT {
     }
 
     @Test
-    void toolsListExposesExactlyTheThreeReadOnlyTools() {
+    void toolsListExposesExactlyTheReadOnlyTools() {
         var tools = client.listTools().tools();
 
-        assertThat(tools).extracting(Tool::name)
-                .containsExactlyInAnyOrder("list_files", "read_file", "search_code");
+        assertThat(tools).extracting(Tool::name).containsExactlyInAnyOrder(
+                "list_files", "read_file", "search_code", "folder_tree", "find_files", "folder_overview");
         assertThat(tools).allSatisfy(tool -> {
             assertThat(tool.description()).isNotBlank();
             assertThat(tool.annotations().readOnlyHint()).isTrue();
@@ -96,7 +97,7 @@ class FilesMcpServerIT {
         });
         Tool search = tools.stream().filter(t -> t.name().equals("search_code")).findFirst().orElseThrow();
         assertThat(search.inputSchema().get("properties")).asInstanceOf(InstanceOfAssertFactories.map(String.class, Object.class))
-                .containsOnlyKeys("query", "path", "glob");
+                .containsOnlyKeys("query", "path", "glob", "contextLines");
         assertThat(search.inputSchema().get("required")).asInstanceOf(InstanceOfAssertFactories.LIST)
                 .containsExactly("query");
     }
@@ -150,6 +151,52 @@ class FilesMcpServerIT {
     }
 
     @Test
+    void readFileReturnsLineRangeOfFileTooLargeToReadWhole() {
+        JsonNode result = callOk("read_file", Map.of("path", "big.txt", "startLine", 1, "endLine", 1));
+
+        assertThat(result.get("content").asString()).isEqualTo("KafkaTemplate\n");
+        assertThat(result.get("lineCount").asInt()).isEqualTo(2);
+        assertThat(result.get("endLine").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void searchCodeReturnsContextLines() {
+        JsonNode match = callOk("search_code", Map.of("query", "private final KafkaTemplate", "contextLines", 1))
+                .get("matches").get(0);
+
+        assertThat(match.get("before").get(0).asString()).isEqualTo("class PaymentProducer {");
+        assertThat(match.get("after").get(0).asString()).isEqualTo("}");
+    }
+
+    @Test
+    void folderTreeShowsLayoutWithoutHiddenEntries() {
+        JsonNode result = callOk("folder_tree", Map.of("path", WS.root().toString(), "depth", 8));
+
+        assertThat(result.get("tree").asString())
+                .contains("src/\n  main/\n    java/", "PaymentProducer.java", "README.md")
+                .doesNotContain(".env", "target", "Generated.java");
+    }
+
+    @Test
+    void findFilesFindsByNameGlob() {
+        JsonNode result = callOk("find_files", Map.of("glob", "*Config.java"));
+
+        assertThat(result.get("files").valueStream().map(f -> f.get("name").asString()))
+                .containsExactly("KafkaConfig.java");
+    }
+
+    @Test
+    void folderOverviewSummarisesProject() {
+        JsonNode result = callOk("folder_overview", Map.of("path", WS.root().toString()));
+
+        assertThat(result.get("files").asInt()).isEqualTo(7);
+        assertThat(result.get("fileTypes").get(0).get("extension").asString()).isEqualTo("java");
+        assertThat(result.get("projectFiles").valueStream().map(f -> f.get("kind").asString()))
+                .contains("README", "Spring config");
+        assertThat(result.toString()).doesNotContain(".env", "Generated.java", "secret.txt");
+    }
+
+    @Test
     void sandboxViolationsAreToolErrorsNotProtocolErrors() {
         assertToolError("read_file", Map.of("path", "../outside/secret.txt"), "ACCESS_DENIED");
         assertToolError("read_file", Map.of("path", "/etc/passwd"), "ACCESS_DENIED");
@@ -159,6 +206,10 @@ class FilesMcpServerIT {
         assertToolError("read_file", Map.of("path", "big.txt"), "TOO_LARGE");
         assertToolError("read_file", Map.of("path", "nope.txt"), "NOT_FOUND");
         assertToolError("search_code", Map.of("query", " "), "INVALID_ARGUMENT");
+        assertToolError("folder_tree", Map.of("path", "../outside"), "ACCESS_DENIED");
+        assertToolError("find_files", Map.of("glob", "*", "path", "/etc"), "ACCESS_DENIED");
+        assertToolError("folder_overview", Map.of("path", "target"), "ACCESS_DENIED");
+        assertToolError("read_file", Map.of("path", "README.md", "startLine", 9), "INVALID_ARGUMENT");
     }
 
     @Test
@@ -171,6 +222,17 @@ class FilesMcpServerIT {
     void rejectsDisallowedBrowserOrigin() throws Exception {
         assertThat(postInitializeWithOrigin("http://evil.example").statusCode()).isEqualTo(403);
         assertThat(postInitializeWithOrigin("http://localhost:6274").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void toolCallsAreTimedAndMetricsCanBeExposed() throws Exception {
+        callOk("list_files", Map.of());
+
+        var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/actuator/metrics/devmate.mcp.tool.calls?tag=tool:list_files"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(response.body()).get("measurements").get(0).get("value").asDouble()).isPositive();
     }
 
     @Test

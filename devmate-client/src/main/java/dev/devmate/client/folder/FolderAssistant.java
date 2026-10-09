@@ -12,7 +12,11 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.StringJoiner;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
@@ -24,13 +28,19 @@ import tools.jackson.databind.json.JsonMapper;
  * pinned to the folder by {@link FolderScope}, and calls them to read and search the code.
  *
  * <p>Only tools that are read-only ({@code readOnlyHint}) and take a {@code path} are offered: those are the ones
- * DevMate can confine to the folder. Nothing here names a specific tool.
+ * DevMate can confine to the folder. Only two tools are named here: {@code list_files} opens the folder, and
+ * {@code folder_overview}, when the server has it, puts a short digest of the folder into the system prompt so even a
+ * model that calls no tools knows what kind of project it is looking at.
  */
 @Service
 public class FolderAssistant {
 
     private static final TypeReference<Map<String, Object>> ARGUMENTS = new TypeReference<>() {};
     private static final String LIST_TOOL = "list_files";
+    private static final String OVERVIEW_TOOL = "folder_overview";
+    private static final int OVERVIEW_FILE_TYPES = 8;
+    private static final int OVERVIEW_PROJECT_FILES = 15;
+    private static final int OVERVIEW_RECENT_FILES = 5;
 
     private final McpToolClient mcp;
     private final LlmClient llm;
@@ -116,11 +126,80 @@ public class FolderAssistant {
     public LlmResponse ask(String folder, String question) {
         FolderSnapshot snapshot = open(folder);
         var scope = new FolderScope(snapshot.path());
-        List<LlmTool> tools = mcp.listTools().stream()
+        List<McpTool> available = mcp.listTools();
+        List<LlmTool> tools = available.stream()
                 .filter(tool -> tool.readOnly() && tool.hasParameter(FolderScope.PATH))
                 .map(tool -> toLlmTool(tool, scope))
                 .toList();
-        return llm.chat(new LlmRequest(systemPrompt(snapshot), question, tools, limits.maxToolRounds()));
+        String overview = available.stream().anyMatch(tool -> tool.name().equals(OVERVIEW_TOOL))
+                ? overview(snapshot.path())
+                : null;
+        return llm.chat(new LlmRequest(systemPrompt(snapshot, overview), question, tools, limits.maxToolRounds()));
+    }
+
+    /**
+     * A few lines on what the folder holds (totals, file types, project files, recent changes), from the server's
+     * {@code folder_overview}; null when the server refuses or answers in an unexpected shape.
+     */
+    String overview(String folder) {
+        McpToolResult result = mcp.callTool(OVERVIEW_TOOL, Map.of(FolderScope.PATH, folder));
+        if (result.error()) {
+            return null;
+        }
+        JsonNode overview;
+        try {
+            overview = json.readTree(result.text());
+        } catch (JacksonException e) {
+            return null;
+        }
+        if (!overview.isObject()) {
+            return null;
+        }
+        Path root = Path.of(folder);
+        var text = new StringBuilder()
+                .append(overview.path("files").asInt()).append(" files in ")
+                .append(overview.path("directories").asInt()).append(" directories, ")
+                .append(humanBytes(overview.path("totalBytes").asLong()));
+        if (overview.path("truncated").asBoolean()) {
+            text.append(" (scan limit reached, so these are lower bounds)");
+        }
+        text.append('\n');
+        appendList(text, "File types", overview.path("fileTypes"), OVERVIEW_FILE_TYPES,
+                type -> type.path("extension").asString() + " (" + type.path("files").asInt() + ")");
+        appendList(text, "Project files", overview.path("projectFiles"), OVERVIEW_PROJECT_FILES,
+                file -> relative(root, file.path("path").asString()) + " (" + file.path("kind").asString() + ")");
+        appendList(text, "Recently modified", overview.path("recentlyModified"), OVERVIEW_RECENT_FILES,
+                file -> relative(root, file.path("path").asString()));
+        return text.toString();
+    }
+
+    private static void appendList(StringBuilder text, String label, JsonNode items, int max,
+                                   Function<JsonNode, String> format) {
+        if (!items.isArray() || items.isEmpty()) {
+            return;
+        }
+        text.append(label).append(": ")
+                .append(items.valueStream().limit(max).map(format).collect(Collectors.joining(", ")));
+        if (items.size() > max) {
+            text.append(", …");
+        }
+        text.append('\n');
+    }
+
+    private static String relative(Path root, String path) {
+        try {
+            return root.relativize(Path.of(path)).toString();
+        } catch (IllegalArgumentException e) {   // includes InvalidPathException
+            return path;
+        }
+    }
+
+    private static String humanBytes(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        double kb = bytes / 1024.0;
+        return kb < 1024 ? String.format(Locale.ROOT, "%.1f KB", kb) : String.format(Locale.ROOT, "%.1f MB", kb / 1024);
     }
 
     private static String requireAbsolute(String rawPath) {
@@ -152,11 +231,40 @@ public class FolderAssistant {
                 return LlmTool.Output.error(e.getMessage());
             }
             McpToolResult result = mcp.callTool(tool.name(), scoped);
-            return new LlmTool.Output(truncate(result.text()), result.error());
+            String text = truncate(result.text());
+            return new LlmTool.Output(text, result.error(), summarize(result, text.length() < result.text().length()));
         });
     }
 
-    private String systemPrompt(FolderSnapshot folder) {
+    /**
+     * One line on a tool's outcome for the user: for a JSON object, its top-level counts and flags (arrays as their
+     * size; strings such as paths and content are left out), e.g. {@code matches=3 filesScanned=40 truncated=false}.
+     * Null (the {@link LlmTool.Output} default) for errors and for anything else.
+     */
+    private String summarize(McpToolResult result, boolean cutOff) {
+        if (result.error()) {
+            return null;
+        }
+        var stats = new StringJoiner(" ");
+        try {
+            json.readTree(result.text()).properties().forEach(field -> {
+                JsonNode value = field.getValue();
+                if (value.isArray()) {
+                    stats.add(field.getKey() + "=" + value.size());
+                } else if (value.isNumber() || value.isBoolean()) {
+                    stats.add(field.getKey() + "=" + value);
+                }
+            });
+        } catch (JacksonException e) {
+            // not JSON: the default summary (its length) is all we can say
+        }
+        if (cutOff) {
+            stats.add("(cut off by DevMate at " + limits.maxToolResultChars() + " chars)");
+        }
+        return stats.length() == 0 ? null : stats.toString();
+    }
+
+    private String systemPrompt(FolderSnapshot folder, String overview) {
         var prompt = new StringBuilder("""
                 You are DevMate, a developer assistant. Answer questions about the project folder %s.
                 Look at the code with the available tools before answering; never guess file contents.
@@ -168,6 +276,9 @@ public class FolderAssistant {
         folder.entries().stream().limit(limits.maxListedEntries()).forEach(e -> prompt.append("- ").append(e).append('\n'));
         if (folder.truncated() || folder.entries().size() > limits.maxListedEntries()) {
             prompt.append("- … (more entries not shown)\n");
+        }
+        if (overview != null) {
+            prompt.append("\nFolder overview (secrets and build/VCS directories excluded):\n").append(overview);
         }
         return prompt.toString();
     }

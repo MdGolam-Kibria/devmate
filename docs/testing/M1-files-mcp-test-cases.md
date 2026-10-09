@@ -4,12 +4,16 @@ Acceptance cases that prove `devmate-files-mcp` works end to end, run against th
 **real MCP protocol**. Every case below is automated in [`scripts/check-files-mcp.sh`](../../scripts/check-files-mcp.sh).
 
 ```bash
-./scripts/check-files-mcp.sh          # → "ALL 35 CASES PASSED — the Files MCP server is working."
+./scripts/check-files-mcp.sh          # → "ALL 56 CASES PASSED — the Files MCP server is working."
 KEEP=1 ./scripts/check-files-mcp.sh   # same, then leave the server running for manual exploration
 ```
 
-Last run: **2026-10-05, 36/36 PASS** (JDK 25.0.4, Linux).
-Negative check: with `DEVMATE_FILES_MCP_ADDRESS=0.0.0.0` the script correctly **fails** TC-03 and TC-33.
+Last run: **2026-10-09, 56/56 PASS** (JDK 25.0.4, Linux).
+Negative checks: with `DEVMATE_FILES_MCP_ADDRESS=0.0.0.0` the script correctly **fails** TC-03 and TC-33; with
+`folder_tree` no longer filtering through the access policy (2026-10-09) it **fails** TC-52.
+
+TC-37…56 were added with the folder-insight tools (`folder_tree`, `find_files`, `folder_overview`), line-range reads,
+search context lines, modified times, per-call result stats in the log and the `devmate.mcp.tool.calls` metric.
 
 ## Fixture
 
@@ -48,9 +52,10 @@ outside/secret.txt                      ← must never be readable
 |---|---|---|---|
 | TC-04 | Initialize | `initialize` | `serverInfo.name = devmate-files`, `capabilities.tools` present, `Mcp-Session-Id` header |
 | TC-05 | Finish handshake | `notifications/initialized` | HTTP 202 |
-| TC-06 | Tool discovery | `tools/list` | Exactly `list_files`, `read_file`, `search_code` |
+| TC-06 | Tool discovery | `tools/list` | Exactly `list_files`, `read_file`, `search_code`, `folder_tree`, `find_files`, `folder_overview` |
 | TC-07 | Tool hints | `tools/list` | Every tool `readOnlyHint=true`, `destructiveHint=false` |
 | TC-08 | Tool schema | `tools/list` | `search_code` requires `query`; `path`, `glob` optional |
+| TC-37 | New parameters | `tools/list` | `read_file` requires only `path` (+ optional `startLine`, `endLine`); `search_code` has `contextLines`; `folder_tree` has optional `path`, `depth`; `find_files` requires `glob`; `folder_overview` has `path` |
 | TC-09 | Unknown tool | `tools/call delete_everything` | JSON-RPC `error`; nothing executed |
 | TC-10 | Missing session | `tools/list` without `Mcp-Session-Id` | HTTP 4xx |
 
@@ -65,6 +70,19 @@ outside/secret.txt                      ← must never be readable
 | TC-15 | Match detail | same | `PaymentProducer.java` match is `line 4`, text `private final KafkaTemplate<String, String> template;` |
 | TC-16 | Glob filter | `search_code {query: kafka, glob: *.yml}` | Only `application.yml` |
 | TC-17 | Literal, not regex | `search_code {query: a.*b}` | 0 matches (no ReDoS surface) |
+
+### Tools: folder insight
+
+| ID | Case | Call | Expected |
+|---|---|---|---|
+| TC-38 | Modified time | `list_files {path: project}` | Each entry has `modified` like `2026-10-09T10:15:00Z` |
+| TC-39 | Line range of a big file | `read_file {path: big.txt, startLine: 1, endLine: 1}` | `content = "KafkaTemplate\n"`, `lineCount 2`, `endLine 1`, `truncated false` (whole read is `TOO_LARGE`) |
+| TC-40 | Range over the content limit | `read_file {path: big.txt, startLine: 2}` | Content cut at 1 MB (1 048 576 chars), `endLine 2`, `truncated true` |
+| TC-41 | Search context | `search_code {query: "private final KafkaTemplate", contextLines: 1}` | `before ["class PaymentProducer {"]`, `after ["}"]` |
+| TC-42 | Directory tree | `folder_tree {path: project, depth: 8}` | Indented tree `src/ → main/ → java/ → com/ → acme/ → KafkaConfig.java …`, `README.md` |
+| TC-43 | Depth limit | `folder_tree {path: project, depth: 1}` | Starts `src/…` (not expanded) |
+| TC-44 | Find by name | `find_files {glob: "*.java"}` | Exactly `KafkaConfig.java`, `PaymentProducer.java`, `PaymentService.java` |
+| TC-45 | Overview | `folder_overview {path: project}` | `files 7`, most common type `java`, project files `README`, `Spring config` |
 
 ### Tools: security (every one must be refused)
 
@@ -85,6 +103,13 @@ Each must return `isError: true` with text starting `REASON:`, and must never in
 | TC-28 | Blank query | `search_code " "` | `INVALID_ARGUMENT` |
 | TC-29 | Search outside | `search_code {path: ../outside}` | `ACCESS_DENIED` |
 | TC-30 | Search leakage | `search_code KafkaTemplate` | No result from `.env`, `target/`, `big.txt`, `logo.png`, `escape.txt`, `outside/` |
+| TC-46 | Tree outside | `folder_tree {path: ../outside}` | `ACCESS_DENIED` |
+| TC-47 | Find outside | `find_files {glob: "*", path: /etc}` | `ACCESS_DENIED` |
+| TC-48 | Overview of an excluded dir | `folder_overview {path: target}` | `ACCESS_DENIED` |
+| TC-49 | Range on a secret | `read_file {path: .env, startLine: 1, endLine: 1}` | `ACCESS_DENIED` (a range doesn't bypass the deny list) |
+| TC-50 | Range on a binary | `read_file {path: logo.png, startLine: 1, endLine: 1}` | `BINARY_FILE` |
+| TC-51 | Range past the end | `read_file {path: README.md, startLine: 9}` | `INVALID_ARGUMENT` |
+| TC-52 | Insight leakage | `folder_tree`, `folder_overview`, `find_files {glob: "*"}`, `find_files {glob: ".env*"}` | No `.env`, `target`, `Generated`, `secret.txt`, `outside`, and the escaping symlink is not a found file |
 
 ### Transport security & logging
 
@@ -94,12 +119,16 @@ Each must return `isError: true` with text starting `REASON:`, and must never in
 | TC-32 | Allow-listed origin | POST `initialize` with `Origin: http://localhost:6274` | HTTP 200 |
 | TC-33 | Network exposure | `GET http://<LAN-IP>:<port>/actuator/health` | Connection refused |
 | TC-34 | No content in logs | grep server log for file contents | No matches |
-| TC-35 | Observability | grep server log | `[…,search_code] … tool call succeeded durationMs=…` |
+| TC-35 | Observability | grep server log | `[…,search_code] … tool call succeeded matches=3 filesMatched=3 filesScanned=… truncated=false durationMs=…` |
+| TC-53 | No paths in logs | grep tool-call log lines for the root path | No matches (stats are counts and flags only) |
+| TC-54 | Metric (opt-in) | Server started with `DEVMATE_ACTUATOR_EXPOSURE=health,info,metrics`; `GET /actuator/metrics/devmate.mcp.tool.calls?tag=tool:search_code&tag=outcome:success` | `COUNT ≥ 1` |
+| TC-55 | Refusals counted | `…?tag=outcome:rejected&tag=reason:ACCESS_DENIED` | `COUNT ≥ 1` |
+| TC-56 | Metrics hidden by default | `GET /actuator/metrics` on a server with default settings | HTTP 404 |
 
 ## Relation to the automated test suite
 
 These cases check the **packaged jar as a user runs it**. The Maven suites check the same behaviour at lower levels:
-`FileAccessPolicyTest`, `FileServiceTest`, `FileToolsTest`, `FilesPropertiesTest` (unit) and `FilesMcpServerIT`
+`FileAccessPolicyTest`, `FileServiceTest`, `FolderInsightsTest`, `FileToolsTest`, `FilesPropertiesTest` (unit) and `FilesMcpServerIT`
 (official MCP SDK client). Both must pass before M1 is considered working:
 
 ```bash

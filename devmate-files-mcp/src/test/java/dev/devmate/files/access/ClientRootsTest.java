@@ -68,7 +68,9 @@ class ClientRootsTest {
     private ClientRoots clientRoots(boolean enabled) {
         FilesProperties p = ws.properties();
         return new ClientRoots(policy, new FilesProperties(p.allowedRoots(), p.maxFileSize(), p.maxListEntries(),
-                p.maxSearchResults(), p.maxSearchFiles(), p.maxLineLength(), p.excludedDirectories(), p.deniedFiles(),
+                p.maxSearchResults(), p.maxSearchFiles(), p.maxLineLength(),
+                p.maxRangeFileSize(), p.maxContextLines(), p.maxTreeDepth(), p.maxTreeEntries(),
+                p.excludedDirectories(), p.deniedFiles(),
                 enabled));
     }
 }

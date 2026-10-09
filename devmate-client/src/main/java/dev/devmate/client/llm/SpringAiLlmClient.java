@@ -107,18 +107,19 @@ public class SpringAiLlmClient implements LlmClient {
             String arguments = call.arguments() == null || call.arguments().isBlank() ? "{}" : call.arguments();
             LlmTool tool = tools.get(call.name());
             LlmTool.Output output;
+            long durationMs;
             long start = System.nanoTime();
             MDC.put("toolName", call.name());
             try {
                 output = tool == null
                         ? LlmTool.Output.error("UNKNOWN_TOOL: no tool named '" + call.name() + "'")
                         : tool.handler().apply(arguments);
-                log.info("tool call finished error={} durationMs={}", output.error(),
-                        (System.nanoTime() - start) / 1_000_000);
+                durationMs = (System.nanoTime() - start) / 1_000_000;
+                log.info("tool call finished error={} durationMs={}", output.error(), durationMs);
             } finally {
                 MDC.remove("toolName");
             }
-            calls.add(new LlmToolCall(call.name(), arguments, output.error()));
+            calls.add(new LlmToolCall(call.name(), arguments, output.error(), output.summary(), durationMs));
             responses.add(new ToolResponseMessage.ToolResponse(call.id(), call.name(), output.text()));
         }
         return ToolResponseMessage.builder().responses(responses).build();

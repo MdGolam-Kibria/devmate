@@ -62,7 +62,15 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   `FolderScope` pins `path` to the open folder → `SpringAiLlmClient` runs the tool loop itself (Spring AI 2.0 chat
   models never execute tools). Tool options must start from `chatModel.getOptions().mutate()`: options passed with a
   prompt replace the defaults (model was null). Tool errors go back to the model; `McpUnavailableException` aborts.
-  Fake model tool keywords: `SEARCH`/`READ`/`LIST`/`LOOP`/`SYSTEM` (`fake_ollama.py`).
+  Fake model tool keywords: `SEARCH`/`READ`/`LIST`/`TREE`/`FIND <glob>`/`OVERVIEW`/`RANGE <path> <a> <b>`/`LOOP`/`SYSTEM`
+  (`fake_ollama.py`). The page shows the whole history: UI cases that assert something is *absent* clear the chat first.
+- Folder insight: files MCP tools `folder_tree`/`find_files`/`folder_overview` live in `service/FolderInsights` (bounded
+  walks, names/attributes only, never contents); `read_file` takes `startLine`/`endLine` (ranges up to
+  `max-range-file-size`), `search_code` takes `contextLines`. Tool outcomes: server logs result counts/flags via
+  `FileTools.stats` (strings dropped) and times `devmate.mcp.tool.calls` (tags tool/outcome/reason; expose with
+  `DEVMATE_ACTUATOR_EXPOSURE=health,info,metrics`); the client mirrors the same rule in `FolderAssistant.summarize` →
+  `LlmTool.Output.summary` → `LlmToolCall.summary/durationMs` → "Tools used" `ChatHistory.ToolUse`. `FolderAssistant`
+  puts a `folder_overview` digest in the system prompt when the server offers that tool.
 - Folder approval: "outside the allowed roots" → popup → `POST /folder/allow` → `McpToolClient.approveRoot` declares an
   MCP root (in memory, until DevMate restarts). Files MCP honours client roots only with
   `devmate.filesystem.allow-client-roots` (`DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS`, yml default true; then `allowed-roots`
@@ -112,3 +120,11 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   (no native dialog can give a page an absolute path); names only, access still via the files MCP sandbox. Client 121
   tests (`FolderBrowserTest`, `FolderChatIT` +5), `check-client.sh` 81/81 (UI-70…81); negative check: listing files and
   dot-folders → UI-72 FAIL. Verified in Chrome: click through → Open this folder → folder opens.
+- 2026-10-09 — Folder insight (on request: "Files MCP Server doesn't share enough insight", all four options chosen):
+  files MCP gains `folder_tree`, `find_files`, `folder_overview` (new `FolderInsights`), `read_file` line ranges
+  (big files read in parts; content cut on a line boundary, `truncated`), `search_code` `contextLines` + `filesMatched`,
+  `list_files` `modified`; per-call log stats and the `devmate.mcp.tool.calls` timer (actuator still health/info by
+  default). Client: overview digest in the system prompt, "Tools used" shows each call's outcome and ms (errors in
+  red), API `toolCalls[].summary/durationMs`. files-mcp 84 unit + 23 IT, client 70 unit + 54 IT; `check-files-mcp.sh`
+  56/56 (TC-37…56), `check-client.sh` 89/89 (UI-82…89). Negative checks: tree without policy filter → TC-52 FAIL;
+  outcome hidden in UI → UI-82/83 FAIL. Decision: overview walks on every question (bounded by `max-search-files`).

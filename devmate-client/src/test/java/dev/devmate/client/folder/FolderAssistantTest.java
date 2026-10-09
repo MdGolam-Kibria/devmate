@@ -177,6 +177,55 @@ class FolderAssistantTest {
     }
 
     @Test
+    void toolOutcomeSummaryKeepsCountsAndFlagsButNoContent() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("search_code", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("search_code"), anyMap())).thenReturn(new McpToolResult(
+                "{\"query\":\"q\",\"matches\":[{\"path\":\"/secret\"}],\"filesScanned\":4,\"truncated\":false}", false));
+        assistant.ask(FOLDER, "q");
+
+        LlmTool.Output output = sentRequest().tools().getFirst().handler().apply("{}");
+
+        assertThat(output.summary())
+                .isEqualTo("matches=1 filesScanned=4 truncated=false (cut off by DevMate at 20 chars)");
+    }
+
+    @Test
+    void systemPromptCarriesTheFolderOverviewWhenTheServerHasIt() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("folder_overview", "", PATH_SCHEMA, true)));
+        when(mcp.callTool("folder_overview", Map.of("path", FOLDER))).thenReturn(new McpToolResult("""
+                {"path":"/work/project","files":42,"directories":7,"totalBytes":204800,"truncated":false,
+                 "fileTypes":[{"extension":"java","files":30,"bytes":1},{"extension":"yml","files":2,"bytes":1}],
+                 "projectFiles":[{"path":"/work/project/pom.xml","kind":"Maven build"},
+                                 {"path":"/work/project/src/main/resources/application.yml","kind":"Spring config"}],
+                 "largestFiles":[],
+                 "recentlyModified":[{"path":"/work/project/src/A.java","modified":"2026-10-01T00:00:00Z"}]}""",
+                false));
+
+        assistant.ask(FOLDER, "q");
+
+        assertThat(sentRequest().systemPrompt()).contains("""
+                Folder overview (secrets and build/VCS directories excluded):
+                42 files in 7 directories, 200.0 KB
+                File types: java (30), yml (2)
+                Project files: pom.xml (Maven build), src/main/resources/application.yml (Spring config)
+                Recently modified: src/A.java
+                """);
+    }
+
+    @Test
+    void overviewIsLeftOutWhenTheServerLacksOrRefusesIt() {
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        assistant.ask(FOLDER, "q");
+        assertThat(sentRequest().systemPrompt()).doesNotContain("Folder overview");
+        verify(mcp, never()).callTool(eq("folder_overview"), anyMap());
+
+        when(mcp.callTool(eq("folder_overview"), anyMap())).thenReturn(new McpToolResult("ACCESS_DENIED: x", true));
+        assertThat(assistant.overview(FOLDER)).isNull();
+        when(mcp.callTool(eq("folder_overview"), anyMap())).thenReturn(new McpToolResult("not json", false));
+        assertThat(assistant.overview(FOLDER)).isNull();
+    }
+
+    @Test
     void serverOutageAbortsTheAnswer() {
         when(mcp.callTool("list_files", Map.of("path", FOLDER)))
                 .thenThrow(new McpUnavailableException("Files MCP server is not reachable", null));

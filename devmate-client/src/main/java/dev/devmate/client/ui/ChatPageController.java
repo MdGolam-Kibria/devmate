@@ -184,8 +184,9 @@ public class ChatPageController {
         return "redirect:/";
     }
 
-    private static String describe(LlmToolCall call) {
-        return call.name() + " " + call.arguments() + (call.error() ? "  → error" : "");
+    private static ChatHistory.ToolUse describe(LlmToolCall call) {
+        return new ChatHistory.ToolUse(call.name() + " " + call.arguments(),
+                (call.error() ? "error: " : "") + call.summary(), call.error(), call.durationMs());
     }
 
     private static String details(LlmResponse answer, long startNanos) {

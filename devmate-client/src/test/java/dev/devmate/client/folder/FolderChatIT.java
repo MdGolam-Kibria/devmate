@@ -154,7 +154,7 @@ class FolderChatIT {
     @Test
     void openingAFolderShowsItAndQuestionsUseItsTools() throws Exception {
         when(llm.chat(any())).thenReturn(new LlmResponse("Kafka is used in `src/Order.java`.", "llama3.2:3b", 100, 20,
-                List.of(new LlmToolCall("search_code", "{\"query\":\"Kafka\"}", false))));
+                List.of(new LlmToolCall("search_code", "{\"query\":\"Kafka\"}", false, "matches=1 truncated=false", 7))));
 
         String opened = post("/folder", "path=" + enc(FOLDER)).body();
         assertThat(opened).contains("id=\"folder-path\">/work/project<", "1 entry", "Ask about this folder");
@@ -162,7 +162,8 @@ class FolderChatIT {
         String answered = post("/chat", "message=" + enc("Where is Kafka used?")).body();
         assertThat(answered)
                 .contains("<code>src/Order.java</code>", "Tools used (1)",
-                        "search_code {&quot;query&quot;:&quot;Kafka&quot;}", "1 tool call");
+                        "search_code {&quot;query&quot;:&quot;Kafka&quot;}", "→ matches=1 truncated=false · 7 ms",
+                        "1 tool call");
         verify(llm).chat(argThat((LlmRequest r) -> r.tools().size() == 1
                 && r.systemPrompt().contains(FOLDER) && r.userMessage().equals("Where is Kafka used?")));
     }
@@ -260,7 +261,7 @@ class FolderChatIT {
     @Test
     void apiAnswersWithToolCalls() throws Exception {
         when(llm.chat(any())).thenReturn(new LlmResponse("in src", "llama3.2:3b", 5, 6,
-                List.of(new LlmToolCall("search_code", "{}", false))));
+                List.of(new LlmToolCall("search_code", "{}", false, "matches=0", 1))));
 
         var response = postJson("/api/folder/ask", "{\"folder\":\"/work/project\",\"question\":\"Where?\"}");
 

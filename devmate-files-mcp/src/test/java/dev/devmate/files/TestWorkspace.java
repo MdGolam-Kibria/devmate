@@ -30,6 +30,7 @@ import org.springframework.util.unit.DataSize;
 public record TestWorkspace(Path root, Path outside) {
 
     public static final DataSize MAX_FILE_SIZE = DataSize.ofKilobytes(4);
+    public static final DataSize MAX_RANGE_FILE_SIZE = DataSize.ofKilobytes(64);
 
     public static TestWorkspace create(Path base) {
         try {
@@ -61,6 +62,7 @@ public record TestWorkspace(Path root, Path outside) {
 
     public FilesProperties properties() {
         return new FilesProperties(List.of(root), MAX_FILE_SIZE, 1000, 200, 20_000, 240,
+                MAX_RANGE_FILE_SIZE, 5, 8, 2000,
                 List.of(".git", "target"), List.of(".env", ".env.*", "*.pem", "*.key"), false);
     }
 

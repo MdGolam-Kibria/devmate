@@ -125,7 +125,8 @@ class FileAccessPolicyTest {
 
     @Test
     void withNoConfiguredRootsEverythingIsOutsideUntilAClientRootIsAdded() throws Exception {
-        var props = new FilesProperties(List.of(), DataSize.ofKilobytes(1), 1, 1, 1, 1, List.of(), List.of(), true);
+        var props = new FilesProperties(List.of(), DataSize.ofKilobytes(1), 1, 1, 1, 1, DataSize.ofKilobytes(64), 5, 8,
+                2000, List.of(), List.of(), true);
         var empty = new FileAccessPolicy(props);
         Path readme = ws.root().resolve("README.md");
 
@@ -143,7 +144,7 @@ class FileAccessPolicyTest {
     @Test
     void failsFastWhenRootDoesNotExist() {
         var props = new FilesProperties(List.of(tmp.resolve("missing")), DataSize.ofKilobytes(1), 1, 1, 1, 1,
-                List.of(), List.of(), false);
+                DataSize.ofKilobytes(64), 5, 8, 2000, List.of(), List.of(), false);
         assertThatThrownBy(() -> new FileAccessPolicy(props))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not exist");
@@ -152,7 +153,7 @@ class FileAccessPolicyTest {
     @Test
     void failsFastWhenRootIsAFile() {
         var props = new FilesProperties(List.of(ws.root().resolve("README.md")), DataSize.ofKilobytes(1), 1, 1, 1,
-                1, List.of(), List.of(), false);
+                1, DataSize.ofKilobytes(64), 5, 8, 2000, List.of(), List.of(), false);
         assertThatThrownBy(() -> new FileAccessPolicy(props))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not a directory");

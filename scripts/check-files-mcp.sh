@@ -101,6 +101,7 @@ NR_SID=$(URL=$NR_URL nr_init)
 URL=$NR_URL SID=$NR_SID rpc '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
 nr_list=$(URL=$NR_URL SID=$NR_SID call list_files '{}')
 nr_read=$(URL=$NR_URL SID=$NR_SID call read_file "{\"path\":\"$FIX/README.md\"}")
+nr_metrics=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$NR_PORT/actuator/metrics")
 kill "$NOROOTS_PID" 2>/dev/null; NOROOTS_PID=""
 result TC-36 "no roots + client roots on (default): starts, lists nothing, denies reads until approved" \
     "$(grep -q 'allow-client-roots=true' "$WORK/clientroots.log" \
@@ -110,7 +111,7 @@ result TC-36 "no roots + client roots on (default): starts, lists nothing, denie
 
 # ── start the real server ─────────────────────────────────────────────────────────────────────
 DEVMATE_FILES_MCP_PORT=$PORT DEVMATE_FILESYSTEM_ALLOWED_ROOTS="$FIX" \
-DEVMATE_HTTP_ALLOWED_ORIGINS="http://localhost:6274" \
+DEVMATE_HTTP_ALLOWED_ORIGINS="http://localhost:6274" DEVMATE_ACTUATOR_EXPOSURE="health,info,metrics" \
     "$JAVA" -jar "$JAR" > "$LOG" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 60); do
@@ -139,11 +140,19 @@ result TC-05 "notifications/initialized → 202 Accepted" "$([[ $code == 202 ]] 
 
 tools=$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 names=$(jq -r '[.result.tools[].name] | sort | join(",")' <<<"$tools")
-result TC-06 "tools/list → exactly list_files, read_file, search_code" "$([[ $names == list_files,read_file,search_code ]] && echo true || echo false)" "$names"
+result TC-06 "tools/list → exactly the six read-only file tools" \
+    "$([[ $names == find_files,folder_overview,folder_tree,list_files,read_file,search_code ]] && echo true || echo false)" "$names"
 result TC-07 "every tool is readOnlyHint=true, destructiveHint=false" \
     "$(jq -r '[.result.tools[].annotations | .readOnlyHint == true and .destructiveHint == false] | all' <<<"$tools")" "$tools"
 result TC-08 "search_code schema: query required; path, glob optional" \
     "$(jq -r '.result.tools[] | select(.name=="search_code") | .inputSchema | (.required == ["query"]) and (.properties | has("path") and has("glob"))' <<<"$tools")"
+
+result TC-37 "new parameters: read_file startLine/endLine, search_code contextLines, folder_tree depth, find_files glob required" \
+    "$(jq -r '[.result.tools[] | {(.name): .inputSchema}] | add
+        | (.read_file.required == ["path"]) and (.read_file.properties | has("startLine") and has("endLine"))
+          and (.search_code.properties | has("contextLines"))
+          and (.folder_tree.properties | has("path") and has("depth")) and ((.folder_tree.required // []) == [])
+          and (.find_files.required == ["glob"]) and (.folder_overview.properties | has("path"))' <<<"$tools")"
 
 r=$(rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"delete_everything","arguments":{}}}')
 result TC-09 "unknown tool → JSON-RPC error (not executed)" "$(jq -r 'has("error")' <<<"$r")" "$r"
@@ -180,6 +189,47 @@ result TC-16 "search_code(glob=*.yml) → only application.yml" "$([[ $found == 
 r=$(call search_code '{"query":"a.*b"}')
 result TC-17 "search_code treats the query as literal text, not regex" "$([[ $(text "$r" | jq -r '.matches | length') == 0 ]] && echo true || echo false)" "$(text "$r")"
 
+# ── insight: richer results and whole-folder tools ───────────────────────────────────────────
+echo; echo "Tools — folder insight"
+r=$(call list_files "{\"path\":\"$FIX\"}")
+mod=$(text "$r" | jq -r '.entries[] | select(.name=="README.md") | .modified')
+result TC-38 "list_files entries carry last-modified time (ISO-8601 UTC)" \
+    "$([[ $mod =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]] && echo true || echo false)" "$mod"
+
+r=$(call read_file '{"path":"big.txt","startLine":1,"endLine":1}')
+got=$(text "$r" | jq -c '{content, lineCount, startLine, endLine, truncated}')
+result TC-39 "read_file line range of a file too large to read whole → just that line" \
+    "$([[ $got == '{"content":"KafkaTemplate\n","lineCount":2,"startLine":1,"endLine":1,"truncated":false}' ]] && echo true || echo false)" "$got"
+
+r=$(call read_file '{"path":"big.txt","startLine":2}')
+got=$(text "$r" | jq -c '{len: (.content | length), endLine, truncated}')
+result TC-40 "read_file range over the content limit → cut at 1 MB, truncated=true" \
+    "$([[ $got == '{"len":1048576,"endLine":2,"truncated":true}' ]] && echo true || echo false)" "$got"
+
+r=$(call search_code '{"query":"private final KafkaTemplate","contextLines":1}')
+got=$(text "$r" | jq -c '.matches[0] | {before, after}')
+result TC-41 "search_code(contextLines=1) → the line before and after each match" \
+    "$([[ $got == '{"before":["class PaymentProducer {"],"after":["}"]}' ]] && echo true || echo false)" "$got"
+
+r=$(call folder_tree "{\"path\":\"$FIX\",\"depth\":8}")
+tree=$(text "$r" | jq -r .tree)
+result TC-42 "folder_tree(root, depth 8) → nested layout down to the Java files" \
+    "$([[ $tree == *$'src/\n  main/\n    java/\n      com/\n        acme/\n          KafkaConfig.java'* && $tree == *README.md* ]] && echo true || echo false)" "$tree"
+
+r=$(call folder_tree "{\"path\":\"$FIX\",\"depth\":1}")
+result TC-43 "folder_tree(depth 1) → directories below the limit marked '/…'" \
+    "$([[ $(text "$r" | jq -r .tree) == $'src/…\n'* ]] && echo true || echo false)" "$(text "$r")"
+
+r=$(call find_files '{"glob":"*.java"}')
+found=$(text "$r" | jq -r '[.files[].name] | join(",")')
+result TC-44 "find_files(\"*.java\") → the three sources, not target/Generated.java" \
+    "$([[ $found == KafkaConfig.java,PaymentProducer.java,PaymentService.java ]] && echo true || echo false)" "$found"
+
+r=$(call folder_overview "{\"path\":\"$FIX\"}")
+got=$(text "$r" | jq -c '{files, top: .fileTypes[0].extension, kinds: [.projectFiles[].kind]}')
+result TC-45 "folder_overview → 7 visible files, java most common, README + Spring config found" \
+    "$([[ $got == '{"files":7,"top":"java","kinds":["README","Spring config"]}' ]] && echo true || echo false)" "$got"
+
 # ── tools: security ───────────────────────────────────────────────────────────────────────────
 echo; echo "Tools — security (each must be refused)"
 expect_error() {  # expect_error <id> <description> <tool> <args> <REASON>
@@ -199,6 +249,19 @@ expect_error TC-26 "read_file(\"nope.txt\") missing inside root" read_file '{"pa
 expect_error TC-27 "read_file(\"src\") a directory" read_file '{"path":"src"}' NOT_A_FILE
 expect_error TC-28 "search_code(\" \") blank query" search_code '{"query":" "}' INVALID_ARGUMENT
 expect_error TC-29 "search_code(path=\"../outside\")" search_code '{"query":"x","path":"../outside"}' ACCESS_DENIED
+
+expect_error TC-46 "folder_tree(\"../outside\")" folder_tree '{"path":"../outside"}' ACCESS_DENIED
+expect_error TC-47 "find_files(path=\"/etc\")" find_files '{"glob":"*","path":"/etc"}' ACCESS_DENIED
+expect_error TC-48 "folder_overview(\"target\") excluded dir" folder_overview '{"path":"target"}' ACCESS_DENIED
+expect_error TC-49 "read_file(\".env\", lines 1-1): a range doesn't bypass the deny list" read_file '{"path":".env","startLine":1,"endLine":1}' ACCESS_DENIED
+expect_error TC-50 "read_file(\"logo.png\", lines 1-1) binary" read_file '{"path":"logo.png","startLine":1,"endLine":1}' BINARY_FILE
+expect_error TC-51 "read_file(startLine past the end)" read_file '{"path":"README.md","startLine":9}' INVALID_ARGUMENT
+
+hidden=$( { text "$(call folder_tree "{\"path\":\"$FIX\",\"depth\":8}")"; text "$(call folder_overview '{}')"; \
+            text "$(call find_files '{"glob":"*"}')"; text "$(call find_files '{"glob":".env*"}')" | jq -c .files; } \
+          | grep -cE '\.env|target|Generated|secret\.txt|outside|escape\.txt"' )
+result TC-52 "folder_tree, folder_overview and find_files never reveal secrets, build output or files outside" \
+    "$([[ $hidden == 0 ]] && echo true || echo false)" "$hidden matching lines"
 
 r=$(call search_code '{"query":"KafkaTemplate"}')
 leaks=$(text "$r" | jq -r '[.matches[].path | select(test("\\.env|target/|big\\.txt|logo\\.png|escape|outside"))] | length')
@@ -220,7 +283,19 @@ fi
 
 leaked=$(grep -c 'KafkaTemplate-secret\|private final KafkaTemplate' "$LOG")
 result TC-34 "server log contains no file contents" "$([[ $leaked == 0 ]] && echo true || echo false)" "$leaked matching lines"
-result TC-35 "server log records tool name and latency" "$(grep -q 'search_code\].*tool call succeeded durationMs=' "$LOG" && echo true || echo false)"
+result TC-35 "server log records tool name, result counts and latency" \
+    "$(grep -qE 'search_code\].*tool call succeeded matches=[0-9]+ filesMatched=[0-9]+ filesScanned=[0-9]+ truncated=(true|false) durationMs=' "$LOG" && echo true || echo false)"
+paths=$(grep 'tool call' "$LOG" | grep -c "$FIX")
+result TC-53 "tool-call log lines carry no paths" "$([[ $paths == 0 ]] && echo true || echo false)" "$paths matching lines"
+
+m=$(curl -s "http://127.0.0.1:${PORT}/actuator/metrics/devmate.mcp.tool.calls?tag=tool:search_code&tag=outcome:success")
+result TC-54 "per-tool timer devmate.mcp.tool.calls counts calls (metrics exposed by opt-in)" \
+    "$([[ $(jq -r '.measurements[] | select(.statistic=="COUNT") | .value' <<<"$m" 2>/dev/null) =~ ^[1-9] ]] && echo true || echo false)" "$m"
+rej=$(curl -s "http://127.0.0.1:${PORT}/actuator/metrics/devmate.mcp.tool.calls?tag=outcome:rejected&tag=reason:ACCESS_DENIED" \
+      | jq -r '.measurements[] | select(.statistic=="COUNT") | .value' 2>/dev/null)
+result TC-55 "refusals are counted by reason (outcome=rejected, reason=ACCESS_DENIED)" \
+    "$([[ $rej =~ ^[1-9] ]] && echo true || echo false)" "count=$rej"
+result TC-56 "metrics endpoint is not exposed by default" "$([[ $nr_metrics == 404 ]] && echo true || echo false)" "http $nr_metrics"
 
 # ── summary ───────────────────────────────────────────────────────────────────────────────────
 echo

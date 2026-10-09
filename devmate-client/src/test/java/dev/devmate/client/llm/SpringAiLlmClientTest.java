@@ -109,7 +109,13 @@ class SpringAiLlmClientTest {
         LlmResponse answer = client.chat(new LlmRequest("sys", "What is pom.xml?", List.of(readFile), 3));
 
         assertThat(answer.text()).isEqualTo("It is a Maven build.");
-        assertThat(answer.toolCalls()).containsExactly(new LlmToolCall("read_file", "{\"path\":\"pom.xml\"}", false));
+        assertThat(answer.toolCalls()).singleElement().satisfies(call -> {
+            assertThat(call.name()).isEqualTo("read_file");
+            assertThat(call.arguments()).isEqualTo("{\"path\":\"pom.xml\"}");
+            assertThat(call.error()).isFalse();
+            assertThat(call.summary()).isEqualTo("12 chars");
+            assertThat(call.durationMs()).isNotNegative();
+        });
         assertThat(answer.inputTokens()).isEqualTo(40);
         assertThat(answer.outputTokens()).isEqualTo(7);
         assertThat(toolArguments).containsExactly("{\"path\":\"pom.xml\"}");
@@ -149,7 +155,10 @@ class SpringAiLlmClientTest {
 
         LlmResponse answer = client.chat(new LlmRequest(null, "q", List.of(readFile), 3));
 
-        assertThat(answer.toolCalls()).containsExactly(new LlmToolCall("rm_rf", "{}", true));
+        assertThat(answer.toolCalls()).singleElement().satisfies(call -> {
+            assertThat(call.error()).isTrue();
+            assertThat(call.summary()).isEqualTo("UNKNOWN_TOOL: no tool named 'rm_rf'");
+        });
         assertThat(toolArguments).isEmpty();
     }
 

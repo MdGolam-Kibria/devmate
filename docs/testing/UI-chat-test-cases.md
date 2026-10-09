@@ -5,12 +5,13 @@ case is automated in [`scripts/check-client.sh`](../../scripts/check-client.sh),
 exactly like a browser: form POST, redirect, session cookie, rendered HTML.
 
 ```bash
-./scripts/check-client.sh            # 81 deterministic cases against a fake model (~60 s)
+./scripts/check-client.sh            # 89 deterministic cases against a fake model (~60 s)
 LIVE=1 ./scripts/check-client.sh     # + 4 cases against your real Ollama (llama3.2:3b), a few minutes on CPU
 KEEP=1 ./scripts/check-client.sh     # leave the app (and files MCP server) running on the fake model
 ```
 
-Last run: **2026-10-05: 81/81 PASS** (JDK 25). The folder Q&A cases also passed with `LIVE=1` (64/64, before the
+Last run: **2026-10-09: 89/89 PASS** (JDK 25). Negative check (2026-10-09): with the tool outcome left out of the
+"Tools used" lines, UI-82 and UI-83 **fail**. The folder Q&A cases also passed with `LIVE=1` (64/64, before the
 approval cases were added).
 Negative checks: with `DEVMATE_ADDRESS=0.0.0.0 DEVMATE_LLM_MAX_ATTEMPTS=6` the script correctly **fails** UI-34
 (reachable from the LAN) and UI-23 (error took 23 s). With the folder-scope check in `FolderScope` disabled it
@@ -38,6 +39,10 @@ and once the result is back it replies `From the tools:` followed by the raw too
 | `SEARCH <text>` | `search_code {"query": "<text>"}` |
 | `READ <path>` | `read_file {"path": "<path>"}` |
 | `LIST` | `list_files {}` |
+| `TREE` | `folder_tree {"depth": 8}` |
+| `FIND <glob>` | `find_files {"glob": "<glob>"}` |
+| `OVERVIEW` | `folder_overview {}` |
+| `RANGE <path> <a> <b>` | `read_file {"path": "<path>", "startLine": a, "endLine": b}` |
 | `LOOP` | `list_files` on every round, forever (DevMate must stop it) |
 | `SYSTEM` | nothing; replies with the system prompt it received |
 
@@ -159,6 +164,21 @@ DevMate starts with `DEVMATE_BROWSE_START=…/ws`; `project/` also has a `.git/`
 | UI-79 | Browse `/` | No ⬆ parent link; `etc` listed |
 | UI-80 | *(same)* | **Type a path instead** still available (collapsed) |
 | UI-81 | Browse `…/elsewhere` | No file content in the page or app log: browsing lists names only |
+
+### Folder insight: tool outcomes and whole-folder tools
+
+Each case starts from a cleared chat (`POST /chat/clear`), so the page holds only that reply.
+
+| ID | Message (folder `…/ws/project` open) | Expected |
+|---|---|---|
+| UI-82 | `SEARCH KafkaTemplate` | Under **Tools used**: `→ matches=1 filesMatched=1 filesScanned=N truncated=false · N ms` |
+| UI-83 | `READ .env` | The line is styled as an error: `→ error: ACCESS_DENIED: path is excluded by policy · N ms` |
+| UI-84 | `TREE` | `folder_tree`: `src/ → main/ → java/ → demo/ → OrderService.java`; no `.env`, `target/`, `.git/` |
+| UI-85 | `FIND *.java` | `find_files`: `OrderService.java`, never `target/Generated.java` |
+| UI-86 | `OVERVIEW` | `folder_overview`: `"files":2` (`.env` not counted), project file kind `README` |
+| UI-87 | `RANGE src/main/java/demo/OrderService.java 3 4` | Lines 3–4 only: `class OrderService {` but not `package demo` |
+| UI-88 | `SYSTEM` | The system prompt has **Folder overview**: `2 files in 4 directories`, `README.md (README)`; never `.env` |
+| UI-89 | `POST /api/folder/ask` `SEARCH KafkaTemplate` | `toolCalls[0].summary` starts `matches=1 `, `durationMs ≥ 0` |
 
 ### Safety: none of these may run code in your browser
 

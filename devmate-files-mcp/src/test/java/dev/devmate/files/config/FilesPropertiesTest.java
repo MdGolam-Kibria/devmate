@@ -44,7 +44,19 @@ class FilesPropertiesTest {
             assertThat(props.maxFileSize()).isEqualTo(DataSize.ofMegabytes(1));
             assertThat(props.excludedDirectories()).contains(".git", "target", "node_modules");
             assertThat(props.deniedFiles()).contains(".env", "*.pem", "id_rsa*");
+            assertThat(props.maxRangeFileSize()).isEqualTo(DataSize.ofMegabytes(64));
+            assertThat(props.maxContextLines()).isEqualTo(5);
+            assertThat(props.maxTreeDepth()).isEqualTo(8);
+            assertThat(props.maxTreeEntries()).isEqualTo(2000);
         });
+    }
+
+    @Test
+    void rejectsRangeLimitBelowWholeFileLimit() {
+        runner.withPropertyValues("devmate.filesystem.allowed-roots=/a", "devmate.filesystem.max-file-size=2MB",
+                        "devmate.filesystem.max-range-file-size=1MB")
+                .run(context -> assertThat(context.getStartupFailure()).rootCause()
+                        .hasMessageContaining("max-range-file-size"));
     }
 
     @Test

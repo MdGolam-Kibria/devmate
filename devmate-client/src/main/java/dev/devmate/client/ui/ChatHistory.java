@@ -31,15 +31,23 @@ public class ChatHistory implements Serializable {
     /**
      * @param html    sanitised HTML rendering of {@code text} (assistant replies only), else null
      * @param details short metadata line (model, tokens, latency) or null
-     * @param tools   tool calls made for this reply, one line each ({@code name {arguments}}); empty if none
+     * @param tools   tool calls made for this reply, in order; empty if none
      */
-    public record Entry(Role role, String text, String html, String details, List<String> tools, Instant at)
+    public record Entry(Role role, String text, String html, String details, List<ToolUse> tools, Instant at)
             implements Serializable {
 
         public Entry {
             tools = List.copyOf(Objects.requireNonNullElse(tools, List.of()));
         }
     }
+
+    /**
+     * One tool call as shown under "Tools used".
+     *
+     * @param call    {@code name {arguments}}
+     * @param outcome one line on the result (counts and flags, or the error reason); never the tool's output
+     */
+    public record ToolUse(String call, String outcome, boolean error, long durationMs) implements Serializable {}
 
     private final List<Entry> entries = new ArrayList<>();
 
@@ -51,7 +59,7 @@ public class ChatHistory implements Serializable {
         add(role, text, html, details, List.of());
     }
 
-    public synchronized void add(Role role, String text, String html, String details, List<String> tools) {
+    public synchronized void add(Role role, String text, String html, String details, List<ToolUse> tools) {
         entries.add(new Entry(role, text, html, details, tools, Instant.now()));
         while (entries.size() > MAX_ENTRIES) {
             entries.removeFirst();
