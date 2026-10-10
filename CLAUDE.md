@@ -57,7 +57,16 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   default true). It's disabled in tests via `src/test/resources/application.properties`. LLM tests set the provider
   explicitly so they pass whichever yml block is active. Developer-facing docs: `docs/DEVELOPER-GUIDE.md`.
 - Correlation: `RequestIdFilter` sets MDC `requestId`. Add new log context (`traceId`, `toolName`, …) through MDC.
-- Folder Q&A (client): `mcp/McpToolClient` (SDK sync client, lazy connect, one retry on a new session) →
+- MCP client (M2, ADR-0004): `mcp/McpClientService` facade → `ToolRegistry` (tools of all `devmate.mcp.servers.<name>`,
+  cached per connection `toolsVersion`, lower `priority` wins a name clash: `files` = 10, default 100, never rely on
+  map order) + `ToolExecutor` (read-only only → SDK `JsonSchemaValidator` on arguments → `tools/call`) →
+  `McpConnection` (lazy open, `classify` failures, retry read-only once; never retry `TIMEOUT` or oversized answers) →
+  `McpSession` (only place with SDK client types, plus `McpConnection`) → `McpTransport`. Outages throw
+  `McpUnavailableException(McpErrorCode, server)`; per-call failures return `McpToolResult(text, errorCode)` (`TIMEOUT`
+  is both). No-LLM API `/api/mcp` (`McpController`). `web/HostHeaderFilter` refuses foreign `Host` headers
+  (`DEVMATE_ALLOWED_HOSTS`). Tests: `TestMcpServer` (SDK server on embedded Tomcat, fault switches); acceptance uses
+  `scripts/support/fake_mcp.py` (misbehaving Streamable HTTP server, `/__calls`, `/__expire`).
+- Folder Q&A (client): `mcp/McpClientService` →
   `folder/FolderAssistant` maps discovered MCP tools to `llm/LlmTool` (only `readOnlyHint` + a `path` param),
   `FolderScope` pins `path` to the open folder → `SpringAiLlmClient` runs the tool loop itself (Spring AI 2.0 chat
   models never execute tools). Tool options must start from `chatModel.getOptions().mutate()`: options passed with a
@@ -71,7 +80,7 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   `DEVMATE_ACTUATOR_EXPOSURE=health,info,metrics`); the client mirrors the same rule in `FolderAssistant.summarize` →
   `LlmTool.Output.summary` → `LlmToolCall.summary/durationMs` → "Tools used" `ChatHistory.ToolUse`. `FolderAssistant`
   puts a `folder_overview` digest in the system prompt when the server offers that tool.
-- Folder approval: "outside the allowed roots" → popup → `POST /folder/allow` → `McpToolClient.approveRoot` declares an
+- Folder approval: "outside the allowed roots" → popup → `POST /folder/allow` → `McpClientService.approveRoot` declares an
   MCP root (in memory, until DevMate restarts). Files MCP honours client roots only with
   `devmate.filesystem.allow-client-roots` (`DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS`, yml default true; then `allowed-roots`
   may be empty and every folder comes from the popup; false + no roots → refuses to start): `access/ClientRoots`
@@ -128,3 +137,10 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   red), API `toolCalls[].summary/durationMs`. files-mcp 84 unit + 23 IT, client 70 unit + 54 IT; `check-files-mcp.sh`
   56/56 (TC-37…56), `check-client.sh` 89/89 (UI-82…89). Negative checks: tree without policy filter → TC-52 FAIL;
   outcome hidden in UI → UI-82/83 FAIL. Decision: overview walks on every question (bounded by `max-search-files`).
+- 2026-10-10 — M2 MCP client (ADR-0004): `McpToolClient` split into `McpTransport`/`McpSession`/`McpConnection`/
+  `ToolRegistry`/`ToolExecutor`/`McpClientService` over SDK 2.0.1; several servers via `devmate.mcp.servers.<name>`
+  (`DEVMATE_FILES_MCP_URL` unchanged); typed `McpErrorCode`s; read-only policy + client-side schema check; no-LLM
+  `/api/mcp`; `HostHeaderFilter` (DNS rebinding). Client 99 unit + 72 IT; `check-mcp-client.sh` 42/42 (real files MCP +
+  `fake_mcp.py`, no LLM); `check-client.sh` 89/89, `check-files-mcp.sh` 56/56. Negative checks: 0.0.0.0 → TC-37, policy
+  removed → TC-16/29/39, attacker host allowed → TC-42 FAIL. Found by the acceptance run: clash order depended on
+  property-source order → explicit `priority`; oversized answers were retried → not any more.

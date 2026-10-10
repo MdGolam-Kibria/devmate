@@ -11,7 +11,7 @@ systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through
 |---|---|---|
 | 🔵 | M0 — Foundation | [Done](docs/milestones/M0.md) |
 | 🔵 | M1 — Files MCP Server | [Done](docs/milestones/M1.md) |
-| ⚪ | M2 — MCP Client | Not started |
+| 🔵 | M2 — MCP Client | [Done](docs/milestones/M2.md) |
 | ⚪ | M3 — LLM Integration | Not started |
 | ⚪ | M4 — Git MCP | Not started |
 | ⚪ | M5 — Code Intelligence | Not started |
@@ -46,7 +46,7 @@ Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md), 
 
 | Module           | Milestone | Purpose                                                    |
 |------------------|-----------|------------------------------------------------------------|
-| `devmate-client`    | M0 | Spring Boot app: web UI, LLM access, MCP client for folder Q&A. Will host the full MCP client (M2) and agent (M3). |
+| `devmate-client`    | M0 | Spring Boot app: web UI, LLM access, the MCP client (M2: discovery, registry, execution, `/api/mcp`). Will host the agent (M3). |
 | `devmate-files-mcp` | M1 | MCP server (Streamable HTTP, `:8091/mcp`): `list_files`, `read_file`, `search_code`, sandboxed and read-only |
 
 Each future module (`devmate-git-mcp`, …) is added when its milestone starts.

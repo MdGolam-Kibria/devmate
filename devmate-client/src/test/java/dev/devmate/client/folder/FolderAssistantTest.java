@@ -15,8 +15,9 @@ import dev.devmate.client.llm.LlmClient;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
 import dev.devmate.client.llm.LlmTool;
+import dev.devmate.client.mcp.McpClientService;
+import dev.devmate.client.mcp.McpErrorCode;
 import dev.devmate.client.mcp.McpTool;
-import dev.devmate.client.mcp.McpToolClient;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
 import java.nio.file.Path;
@@ -37,14 +38,14 @@ class FolderAssistantTest {
     private static final Map<String, Object> PATH_SCHEMA =
             Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")));
 
-    private final McpToolClient mcp = mock(McpToolClient.class);
+    private final McpClientService mcp = mock(McpClientService.class);
     private final LlmClient llm = mock(LlmClient.class);
     private final FolderAssistant assistant =
             new FolderAssistant(mcp, llm, new AgentProperties(5, 20, 60), JsonMapper.builder().build());
 
     @BeforeEach
     void folderExists() {
-        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(new McpToolResult(LISTING, false));
+        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(McpToolResult.success(LISTING));
         when(llm.chat(any())).thenReturn(new LlmResponse("answer", "m", 1, 1));
     }
 
@@ -58,7 +59,8 @@ class FolderAssistantTest {
     @Test
     void openPassesTheServersRefusalThrough() {
         when(mcp.callTool("list_files", Map.of("path", "/etc")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
 
         assertThatThrownBy(() -> assistant.open("/etc"))
                 .isInstanceOf(FolderException.class).hasMessage("ACCESS_DENIED: path is outside the allowed roots");
@@ -84,7 +86,8 @@ class FolderAssistantTest {
     @Test
     void allowNotAcceptedByTheServerIsRevokedAndExplained() {
         when(mcp.callTool("list_files", Map.of("path", "/other")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
 
         assertThatThrownBy(() -> assistant.allow("/other"))
                 .isInstanceOf(FolderException.class)
@@ -110,9 +113,8 @@ class FolderAssistantTest {
 
     @Test
     void rootsComeFromListFilesWithoutPath() {
-        when(mcp.callTool("list_files", Map.of())).thenReturn(new McpToolResult(
-                "{\"path\":null,\"entries\":[{\"name\":\"/a\",\"path\":\"/a\",\"type\":\"DIRECTORY\",\"size\":0}]}",
-                false));
+        when(mcp.callTool("list_files", Map.of())).thenReturn(McpToolResult.success(
+                "{\"path\":null,\"entries\":[{\"name\":\"/a\",\"path\":\"/a\",\"type\":\"DIRECTORY\",\"size\":0}]}"));
 
         assertThat(assistant.roots()).containsExactly("/a");
     }
@@ -120,9 +122,9 @@ class FolderAssistantTest {
     @Test
     void offersOnlyReadOnlyToolsThatTakeAPath() {
         when(mcp.listTools()).thenReturn(List.of(
-                new McpTool("read_file", "Read a file.", PATH_SCHEMA, true),
-                new McpTool("delete_file", "Delete a file.", PATH_SCHEMA, false),
-                new McpTool("server_time", "Time.", Map.of("type", "object"), true)));
+                new McpTool("files", "read_file", "Read a file.", PATH_SCHEMA, true),
+                new McpTool("files", "delete_file", "Delete a file.", PATH_SCHEMA, false),
+                new McpTool("files", "server_time", "Time.", Map.of("type", "object"), true)));
 
         assistant.ask(FOLDER, "What is in pom.xml?");
 
@@ -138,8 +140,8 @@ class FolderAssistantTest {
 
     @Test
     void toolCallsArePinnedToTheFolder() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
-        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(new McpToolResult("content", false));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(McpToolResult.success("content"));
         assistant.ask(FOLDER, "q");
         LlmTool tool = sentRequest().tools().getFirst();
 
@@ -156,8 +158,8 @@ class FolderAssistantTest {
 
     @Test
     void longToolOutputIsCutOff() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
-        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(new McpToolResult("x".repeat(50), false));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(McpToolResult.success("x".repeat(50)));
         assistant.ask(FOLDER, "q");
 
         String text = sentRequest().tools().getFirst().handler().apply("{}").text();
@@ -167,9 +169,9 @@ class FolderAssistantTest {
 
     @Test
     void toolErrorsFromTheServerReachTheModelAsErrors() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
         when(mcp.callTool(eq("read_file"), anyMap()))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: .env", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: .env", McpErrorCode.TOOL_ERROR));
         assistant.ask(FOLDER, "q");
 
         assertThat(sentRequest().tools().getFirst().handler().apply("{\"path\":\".env\"}"))
@@ -178,9 +180,9 @@ class FolderAssistantTest {
 
     @Test
     void toolOutcomeSummaryKeepsCountsAndFlagsButNoContent() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("search_code", "", PATH_SCHEMA, true)));
-        when(mcp.callTool(eq("search_code"), anyMap())).thenReturn(new McpToolResult(
-                "{\"query\":\"q\",\"matches\":[{\"path\":\"/secret\"}],\"filesScanned\":4,\"truncated\":false}", false));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "search_code", "", PATH_SCHEMA, true)));
+        when(mcp.callTool(eq("search_code"), anyMap())).thenReturn(McpToolResult.success(
+                "{\"query\":\"q\",\"matches\":[{\"path\":\"/secret\"}],\"filesScanned\":4,\"truncated\":false}"));
         assistant.ask(FOLDER, "q");
 
         LlmTool.Output output = sentRequest().tools().getFirst().handler().apply("{}");
@@ -191,15 +193,14 @@ class FolderAssistantTest {
 
     @Test
     void systemPromptCarriesTheFolderOverviewWhenTheServerHasIt() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("folder_overview", "", PATH_SCHEMA, true)));
-        when(mcp.callTool("folder_overview", Map.of("path", FOLDER))).thenReturn(new McpToolResult("""
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "folder_overview", "", PATH_SCHEMA, true)));
+        when(mcp.callTool("folder_overview", Map.of("path", FOLDER))).thenReturn(McpToolResult.success("""
                 {"path":"/work/project","files":42,"directories":7,"totalBytes":204800,"truncated":false,
                  "fileTypes":[{"extension":"java","files":30,"bytes":1},{"extension":"yml","files":2,"bytes":1}],
                  "projectFiles":[{"path":"/work/project/pom.xml","kind":"Maven build"},
                                  {"path":"/work/project/src/main/resources/application.yml","kind":"Spring config"}],
                  "largestFiles":[],
-                 "recentlyModified":[{"path":"/work/project/src/A.java","modified":"2026-10-01T00:00:00Z"}]}""",
-                false));
+                 "recentlyModified":[{"path":"/work/project/src/A.java","modified":"2026-10-01T00:00:00Z"}]}"""));
 
         assistant.ask(FOLDER, "q");
 
@@ -214,21 +215,22 @@ class FolderAssistantTest {
 
     @Test
     void overviewIsLeftOutWhenTheServerLacksOrRefusesIt() {
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("read_file", "", PATH_SCHEMA, true)));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
         assistant.ask(FOLDER, "q");
         assertThat(sentRequest().systemPrompt()).doesNotContain("Folder overview");
         verify(mcp, never()).callTool(eq("folder_overview"), anyMap());
 
-        when(mcp.callTool(eq("folder_overview"), anyMap())).thenReturn(new McpToolResult("ACCESS_DENIED: x", true));
+        when(mcp.callTool(eq("folder_overview"), anyMap()))
+                .thenReturn(new McpToolResult("ACCESS_DENIED: x", McpErrorCode.TOOL_ERROR));
         assertThat(assistant.overview(FOLDER)).isNull();
-        when(mcp.callTool(eq("folder_overview"), anyMap())).thenReturn(new McpToolResult("not json", false));
+        when(mcp.callTool(eq("folder_overview"), anyMap())).thenReturn(McpToolResult.success("not json"));
         assertThat(assistant.overview(FOLDER)).isNull();
     }
 
     @Test
     void serverOutageAbortsTheAnswer() {
         when(mcp.callTool("list_files", Map.of("path", FOLDER)))
-                .thenThrow(new McpUnavailableException("Files MCP server is not reachable", null));
+                .thenThrow(down("Files MCP server is not reachable"));
 
         assertThatThrownBy(() -> assistant.ask(FOLDER, "q")).isInstanceOf(McpUnavailableException.class);
         verify(llm, never()).chat(any());
@@ -238,5 +240,9 @@ class FolderAssistantTest {
         var request = ArgumentCaptor.forClass(LlmRequest.class);
         verify(llm).chat(request.capture());
         return request.getValue();
+    }
+
+    private static McpUnavailableException down(String message) {
+        return new McpUnavailableException(McpErrorCode.CONNECTION_FAILED, "files", message, null);
     }
 }

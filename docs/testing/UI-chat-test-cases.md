@@ -261,7 +261,7 @@ the wiring is.
 
 ## Relation to the Maven tests
 
-`ChatPageIT`, `ChatControllerIT`, `FolderChatIT`, `McpToolClientIT`, `MarkdownRendererTest`, `FolderScopeTest`,
+`ChatPageIT`, `ChatControllerIT`, `FolderChatIT`, `McpClientServiceIT`, `MarkdownRendererTest`, `FolderScopeTest`,
 `FolderAssistantTest` and `SpringAiLlmClientTest` cover the same behaviour inside a test context, with mocks or an
 in-test MCP server. This script checks the **packaged app as you run it**, with a real HTTP model server.
 Both must pass:

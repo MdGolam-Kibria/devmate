@@ -3,10 +3,10 @@
 The DevMate application you interact with: a **chat web UI** and **JSON API** in front of a configurable LLM
 (Anthropic Claude or local Ollama). It runs on **http://localhost:8083/** and opens in your browser on startup.
 
-> **Ask about a folder:** open a folder in the UI and ask questions about its code. DevMate connects to the
-> [files MCP server](../devmate-files-mcp/README.md) over MCP, gives the model its tools (discovered at runtime,
-> pinned to that folder), and the model searches and reads the files to answer. This is a slice of M2 (MCP client)
-> and M3 (agent) pulled forward on request; both milestones are still open (⚪).
+> **MCP client (M2, done):** DevMate connects to any number of MCP servers, discovers their tools at runtime and calls
+> them, with or without an LLM (`/api/mcp`). **Ask about a folder:** open a folder in the UI and ask questions about
+> its code; the model gets the [files MCP server](../devmate-files-mcp/README.md)'s tools, pinned to that folder.
+> The tool-using agent itself is M3 (still ⚪); folder Q&A is a slice of it pulled forward on request.
 
 ---
 
@@ -22,8 +22,10 @@ The DevMate application you interact with: a **chat web UI** and **JSON API** in
 | **Ask about a folder** | `folder/FolderAssistant`, `ui/SelectedFolder`, `ui/FolderBrowser`, folder bar in `chat.html` | Click a folder in the picker (or type its path), ask; "Tools used (N)" under each answer |
 | Folder JSON API | `folder/FolderController` | `POST /api/folder/ask {folder, question}`, `GET /api/folder/roots` |
 | Folder scope | `folder/FolderScope` | Tool `path` pinned to the open folder; `../`, other roots, `/etc` refused |
-| Approve any folder (popup) | `POST /folder/allow`, `FolderAssistant.allow`, `McpToolClient.approveRoot` | Folder outside the server's roots → "Allow DevMate to read this folder?" → declared as an MCP root until DevMate restarts |
-| MCP client | `mcp/McpToolClient` | Official SDK, Streamable HTTP; lazy connect, reconnects after a server restart |
+| Approve any folder (popup) | `POST /folder/allow`, `FolderAssistant.allow`, `McpClientService.approveRoot` | Folder outside the server's roots → "Allow DevMate to read this folder?" → declared as an MCP root until DevMate restarts |
+| **MCP client (M2)** | `mcp/McpClientService` → `ToolRegistry`, `ToolExecutor` → `McpConnection` → `McpSession` → `McpTransport` | Official SDK, Streamable HTTP; several servers by config; lazy connect, re-initialize, reconnect; typed errors ([ADR-0004](../docs/decisions/ADR-0004-mcp-client.md)) |
+| MCP API (no LLM) | `mcp/McpController` | `GET /api/mcp/servers`, `GET /api/mcp/tools[?refresh=true]`, `POST /api/mcp/tools/{name}/call` |
+| DNS-rebinding guard | `web/HostHeaderFilter` | Only `Host: localhost / 127.0.0.1 / [::1]` answered (`DEVMATE_ALLOWED_HOSTS`) |
 | Tool-calling loop | `llm/SpringAiLlmClient` | Model ↔ tools, max 8 rounds, tool output cut at 30 000 chars |
 | Any LLM by config | `llm/LlmClient`, `llm/SpringAiLlmClient`, `application.yml` | Anthropic block active, Ollama block commented |
 | API-key check | `llm/LlmCredentialsCheck` | Anthropic without a key stops startup with a clear message |
@@ -106,6 +108,29 @@ POST /chat "Where is Kafka used?"  FolderAssistant.ask
 - Logs show tool name, outcome and latency, never arguments or file contents. The files MCP server logs each call's
   result counts too, and can expose a per-tool timer (see its README).
 
+### The MCP client (M2)
+
+```text
+McpClientService (facade: folder Q&A, /api/mcp, later the agent)
+ ├─ ToolRegistry      tools of every server; tools/list once per session (or on tools/list_changed, ?refresh=true);
+ │                    a name two servers offer goes to the lower `priority` (files: 10, default 100)
+ └─ ToolExecutor      tools/call: find → read-only? → arguments valid for the inputSchema? → call → map the outcome
+       │                logs `MCP tools/call server=… tool=… outcome=… durationMs=…`, timer devmate.mcp.client.calls
+       ▼
+   McpConnection      one per devmate.mcp.servers.<name>: opens a McpSession on first use, drops it when the
+       │              connection/session/transport breaks, re-sends read-only calls once on a new session
+   McpSession         initialize result (serverInfo, protocol, capabilities) + listTools / callTool
+   McpTransport       SDK HttpClientStreamableHttpTransport: connect timeout, max-response-size
+```
+
+Every failure has a code. Thrown as `McpUnavailableException` (the server can't be used; API 503, folder Q&A shows
+the message): `CONNECTION_FAILED` (refused, unknown host, initialize failed), `TIMEOUT` (initialize / tools/list),
+`SESSION_ERROR`, `TRANSPORT_ERROR` (bad HTTP status, unreadable or oversized message). Returned as an error
+`McpToolResult` (the model can react; API status in brackets): `UNKNOWN_TOOL` (404), `INVALID_ARGUMENTS` (400,
+checked by DevMate before sending or rejected by the server), `TOOL_NOT_ALLOWED` (403, not declared read-only),
+`TOOL_ERROR` (200, the tool's own `isError`), `SERVER_ERROR` (502, JSON-RPC error), `TIMEOUT` (504, one slow
+`tools/call`; the session stays). Timeouts and oversized answers are never retried.
+
 ### How the provider switch works
 
 `application.yml` has one place you edit and one derived "wiring" section:
@@ -159,6 +184,9 @@ java -jar devmate-client/target/devmate-client-0.1.0-SNAPSHOT.jar
 | Attempts on provider error | `DEVMATE_LLM_MAX_ATTEMPTS` | `2` (Spring AI default 10 would hang minutes) |
 | Files MCP endpoint | `DEVMATE_FILES_MCP_URL` | `http://127.0.0.1:8091/mcp` |
 | Files MCP request timeout | `DEVMATE_FILES_MCP_TIMEOUT` | `30s` |
+| More MCP servers | `--devmate.mcp.servers.<name>.url=…` (+ `.priority`, `.connect-timeout` 3s, `.initialization-timeout` 10s, `.request-timeout` 30s, `.max-response-size` 4MB) | only `files` |
+| Discover at startup (log only) | `DEVMATE_MCP_CONNECT_ON_STARTUP` | `true` |
+| Accepted `Host` names | `DEVMATE_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` |
 | Tool rounds per question | `DEVMATE_AGENT_MAX_TOOL_ROUNDS` | `8` |
 | Longest tool output sent to the model | `DEVMATE_AGENT_MAX_TOOL_RESULT_CHARS` | `30000` |
 
@@ -172,6 +200,13 @@ IntelliJ: run `dev.devmate.client.DevMateClientApplication` with SDK `ms-25.0.4.
   curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' -d '{"message":"What is Kafka?"}'
   ```
 - **Health:** `curl localhost:8083/actuator/health`
+- **MCP without an LLM** (files MCP server running):
+  ```bash
+  curl -s localhost:8083/api/mcp/servers | jq                       # state, serverInfo, protocol, tool count, last error
+  curl -s localhost:8083/api/mcp/tools | jq '.tools[].name'          # discovered, never hardcoded
+  curl -s -X POST localhost:8083/api/mcp/tools/search_code/call -H 'Content-Type: application/json' \
+    -d '{"arguments":{"query":"Kafka"}}' | jq                        # {tool, server, error, errorCode, text, durationMs}
+  ```
 
 ### Ask about a folder
 
@@ -239,10 +274,17 @@ LIVE=1 ./scripts/check-client.sh   # + 4 against your real Ollama (incl. a folde
 The example messages and expected results are in
 [docs/testing/UI-chat-test-cases.md](../docs/testing/UI-chat-test-cases.md). Try them by hand in the UI too.
 
+**Does the MCP client work (M2)?** 42 acceptance cases against the packaged jars, the real files MCP server and a
+misbehaving fake one, no LLM: [docs/testing/M2-mcp-client-test-cases.md](../docs/testing/M2-mcp-client-test-cases.md).
+
+```bash
+./scripts/check-mcp-client.sh      # → "ALL 42 CASES PASSED"
+```
+
 Maven suites:
 
 ```bash
-./mvnw -pl devmate-client verify                       # all client tests (70 unit + 54 IT)
+./mvnw -pl devmate-client verify                       # all client tests (99 unit + 72 IT)
 ./mvnw -pl devmate-client test -Dtest=MarkdownRendererTest
 ./mvnw -pl devmate-client verify -Dit.test=ChatPageIT
 DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT   # real Ollama call
@@ -255,7 +297,10 @@ DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT
 | `LlmProviderSwitchIT` | Anthropic config gives `AnthropicChatModel`, Ollama config gives `OllamaChatModel`; env model override works; missing key stops startup |
 | `SpringAiLlmClientTest` | Prompt order, blank system prompt dropped, token mapping, provider errors become `LlmException`; tool loop: results sent back, tokens summed, defaults kept, unknown tool, round limit |
 | `FolderChatIT` | Folder bar, picker roots, folder browsing (home start, breadcrumb, hidden/files not listed, fallback on errors), open/refuse/close, answers with "Tools used", per-session folder, MCP outage, `/api/folder/ask` 200/400/403/404/502/503; approval popup only for "outside the allowed roots", Allow opens / explains the server setting |
-| `McpToolClientIT` | Real Streamable HTTP against an SDK MCP server on embedded Tomcat: tools/list + readOnly hint, tools/call, tool errors, unknown tool, server down, reconnect after restart; approved roots visible to the server via roots/list, before/after connect, after reconnect, revoke |
+| `McpClientServiceIT` | Real Streamable HTTP against SDK MCP servers on embedded Tomcat (`TestMcpServer`): connect → initialize → discover → register → `search_code("Kafka")`; schemas + readOnly hint; cache until `list_changed`; several servers, priority on a clash, a down server not hiding the others; every error code (tool error, unknown/removed tool, client- and server-side invalid arguments, JSON-RPC error, not read-only, timeout keeping the session, connection refused, oversized answer not retried, expired session, restart); roots before/after connect, after reconnect, revoke |
+| `McpControllerIT` | `/api/mcp` through the whole app against a real MCP server + a down one: DoD call, server status, tool list, status code per error, 503 shape, bad names, 415 for form/text posts, 405 |
+| `ToolExecutorTest`, `ToolRegistryTest`, `McpConnectionTest`, `McpClientPropertiesTest` | Policy before network, schema check, JSON-RPC mapping, metric/MDC; cache versions, clash, lookup stops at the first server; failure classification through Reactor wrapping; config validation and priority order |
+| `HostHeaderFilterTest` | Foreign `Host` refused (DNS rebinding), loopback names pass |
 | `FolderAssistantTest` | Only read-only tools with `path` offered; arguments pinned to the folder; output cut off; server reasons passed through |
 | `FolderScopeTest` | `..`, `/etc/passwd`, sibling folders with the same prefix refused; relative paths resolved |
 | `MarkdownRendererTest` | Formatting renders; `<script>`, `<img onerror>`, `<iframe>`, `javascript:` neutralised |
@@ -271,4 +316,5 @@ Normal tests never call a real model: they replace `LlmClient` with `@MockitoBea
 rendered numbered list with tokens/time underneath. Then ask it to reply with `<script>alert(1)</script>`: you see
 the text and no popup.
 
-More: [developer guide](../docs/DEVELOPER-GUIDE.md) · [ADR-0003 (LLM design)](../docs/decisions/ADR-0003-model-agnostic-llm.md)
+More: [developer guide](../docs/DEVELOPER-GUIDE.md) · [ADR-0003 (LLM design)](../docs/decisions/ADR-0003-model-agnostic-llm.md) ·
+[ADR-0004 (MCP client)](../docs/decisions/ADR-0004-mcp-client.md) · [M2](../docs/milestones/M2.md)

@@ -268,7 +268,7 @@ Implement the project through these milestones:
 ```text
 🔵 M0   Foundation
 🔵 M1   Files MCP Server
-⚪ M2   MCP Client
+🔵 M2   MCP Client
 ⚪ M3   LLM Integration
 ⚪ M4   Git MCP
 ⚪ M5   Code Intelligence
@@ -435,7 +435,7 @@ search_code
 
 ---
 
-# MILESTONE 2 — MCP CLIENT
+# 🔵 MILESTONE 2 — MCP CLIENT
 
 Implement the core MCP Client.
 

@@ -73,6 +73,10 @@ server:
     include-stacktrace: never
     include-message: never
 
+devmate.http:
+  # Host headers DevMate answers (DNS-rebinding protection). Add your host name if you change DEVMATE_ADDRESS.
+  allowed-hosts: ${DEVMATE_ALLOWED_HOSTS:localhost,127.0.0.1,[::1]}
+
 spring.thymeleaf:
   cache: ${DEVMATE_TEMPLATE_CACHE:true}
 
@@ -80,10 +84,17 @@ devmate.ui:
   open-browser: ${DEVMATE_OPEN_BROWSER:true}   # open the UI in the default browser on startup (local desktop only)
   browse-start: ${DEVMATE_BROWSE_START:${user.home}}   # where the folder picker starts browsing
 
-# Folder Q&A: the files MCP server DevMate reads folders through, and limits for tool-using answers.
-devmate.mcp.files:
-  url: ${DEVMATE_FILES_MCP_URL:http://127.0.0.1:8091/mcp}
-  request-timeout: ${DEVMATE_FILES_MCP_TIMEOUT:30s}
+# MCP client (M2): the servers DevMate discovers tools on. Add one with devmate.mcp.servers.<name>.url
+# (e.g. --devmate.mcp.servers.git.url=...). Per server: priority (100; lower wins a tool-name clash), connect-timeout
+# (3s), initialization-timeout (10s), request-timeout (30s), max-response-size (4MB).
+devmate.mcp:
+  connect-on-startup: ${DEVMATE_MCP_CONNECT_ON_STARTUP:true}   # discover in the background at startup (log only)
+  servers:
+    files:                     # folder Q&A reads folders through this one
+      url: ${DEVMATE_FILES_MCP_URL:http://127.0.0.1:8091/mcp}
+      priority: 10             # its file tools win over same-named tools of servers added later
+      request-timeout: ${DEVMATE_FILES_MCP_TIMEOUT:30s}
+# Limits for tool-using answers.
 devmate.agent:
   max-tool-rounds: ${DEVMATE_AGENT_MAX_TOOL_ROUNDS:8}
   max-tool-result-chars: ${DEVMATE_AGENT_MAX_TOOL_RESULT_CHARS:30000}

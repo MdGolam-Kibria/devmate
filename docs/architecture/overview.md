@@ -16,7 +16,7 @@ User ──► DevMate Agent ──► LLM (tool selection)
 MCP is the protocol boundary between the agent and every external system. The client finds tools at runtime
 (`initialize` → `tools/list`) and never hardcodes them. The LLM receives the discovered tool definitions.
 
-## Current state (M1 + LLM, UI and folder Q&A slices)
+## Current state (M2 + LLM, UI and folder Q&A slices)
 
 ```text
 devmate/                       parent POM: Java 25, Boot 4.1.1, enforcer, test plugins
@@ -24,10 +24,12 @@ devmate/                       parent POM: Java 25, Boot 4.1.1, enforcer, test p
 │   └── dev.devmate.client
 │       ├── DevMateClientApplication
 │       ├── llm/                  LlmClient port (+ LlmTool) → SpringAiLlmClient (runs the tool loop)
-│       ├── mcp/McpToolClient     SDK client, Streamable HTTP to the files MCP server (lazy, reconnects)
+│       ├── mcp/                  MCP client (ADR-0004): McpClientService facade → ToolRegistry + ToolExecutor →
+│       │                         McpConnection per server → McpSession → McpTransport (SDK, Streamable HTTP);
+│       │                         McpController = /api/mcp (servers, tools, call; no LLM)
 │       ├── folder/               FolderAssistant (MCP tools → LlmTools), FolderScope (path pinned to folder)
 │       ├── ui/                   Thymeleaf chat page, folder bar, session history + selected folder
-│       └── web/RequestIdFilter   correlation id → response header + MDC
+│       └── web/                  RequestIdFilter (correlation id → header + MDC), HostHeaderFilter (DNS rebinding)
 └── devmate-files-mcp/         MCP server, Streamable HTTP :8091/mcp (ADR-0002)
     └── dev.devmate.files
         ├── tools/FileTools          @McpTool adapter → CallToolResult (wire format owned here)
@@ -51,11 +53,15 @@ Runtime properties:
   switches to ECS JSON, where MDC keys become fields. Later milestones add `traceId`, `spanId`, `sessionId` and `toolName`
   through MDC in the same way.
 
+MCP client flow (M2): `initialize` → `tools/list` (all servers, cached per session / `list_changed`) → registry
+(unique names, lower `priority` wins a clash) → `tools/call` after the read-only policy and a schema check of the
+arguments → `McpToolResult` or, when a server can't be used, `McpUnavailableException` (error codes in ADR-0004).
+
 ## Module plan
 
 | Module              | Introduced | Depends on                         |
 |---------------------|------------|------------------------------------|
-| `devmate-client`    | M0         | — (MCP SDK client from M2, LLM from M3) |
+| `devmate-client`    | M0         | MCP SDK client (M2), Spring AI (LLM, M3) |
 | `devmate-files-mcp` | M1         | Spring AI MCP server starter → MCP SDK 2.0.1 |
 | `devmate-git-mcp`   | M4         | same stack as files (ADR-0002)     |
 

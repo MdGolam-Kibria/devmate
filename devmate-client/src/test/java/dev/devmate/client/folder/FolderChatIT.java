@@ -14,8 +14,9 @@ import dev.devmate.client.llm.LlmException;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
 import dev.devmate.client.llm.LlmToolCall;
+import dev.devmate.client.mcp.McpClientService;
+import dev.devmate.client.mcp.McpErrorCode;
 import dev.devmate.client.mcp.McpTool;
-import dev.devmate.client.mcp.McpToolClient;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
 import java.net.CookieManager;
@@ -54,7 +55,7 @@ class FolderChatIT {
     private static final Path HOME = homeTree();
 
     @MockitoBean
-    McpToolClient mcp;
+    McpClientService mcp;
 
     @MockitoBean
     LlmClient llm;
@@ -73,10 +74,10 @@ class FolderChatIT {
     void setUp() {
         browser = HttpClient.newBuilder().cookieHandler(new CookieManager())
                 .followRedirects(HttpClient.Redirect.NORMAL).build();
-        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(new McpToolResult(LISTING, false));
-        when(mcp.callTool("list_files", Map.of())).thenReturn(new McpToolResult(
-                "{\"path\":null,\"entries\":[{\"name\":\"/work\",\"path\":\"/work\",\"type\":\"DIRECTORY\"}]}", false));
-        when(mcp.listTools()).thenReturn(List.of(new McpTool("search_code", "Find text",
+        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(McpToolResult.success(LISTING));
+        when(mcp.callTool("list_files", Map.of())).thenReturn(McpToolResult.success(
+                "{\"path\":null,\"entries\":[{\"name\":\"/work\",\"path\":\"/work\",\"type\":\"DIRECTORY\"}]}"));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "search_code", "Find text",
                 Map.of("type", "object", "properties", Map.of("query", Map.of(), "path", Map.of())), true)));
     }
 
@@ -119,8 +120,8 @@ class FolderChatIT {
     @Test
     void openThisFolderOpensTheBrowsedFolder() throws Exception {
         String shop = HOME.resolve("projects/shop").toString();
-        when(mcp.callTool("list_files", Map.of("path", shop))).thenReturn(new McpToolResult(
-                "{\"path\":\"" + shop + "\",\"entries\":[],\"truncated\":false}", false));
+        when(mcp.callTool("list_files", Map.of("path", shop))).thenReturn(McpToolResult.success(
+                "{\"path\":\"" + shop + "\",\"entries\":[],\"truncated\":false}"));
 
         assertThat(get("/folder?browse=" + enc(shop)).body()).contains("name=\"path\" value=\"" + shop + "\"");
         assertThat(post("/folder", "path=" + enc(shop)).body()).contains("id=\"folder-path\">" + shop + "<");
@@ -138,7 +139,8 @@ class FolderChatIT {
     void afterARefusedOpenThePickerShowsThatFolder() throws Exception {
         String shop = HOME.resolve("projects/shop").toString();
         when(mcp.callTool("list_files", Map.of("path", shop)))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is excluded by policy: shop", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is excluded by policy: shop",
+                        McpErrorCode.TOOL_ERROR));
 
         assertThat(post("/folder", "path=" + enc(shop)).body())
                 .contains("excluded by policy", "id=\"browse-path\">" + shop + "<");
@@ -146,7 +148,7 @@ class FolderChatIT {
 
     @Test
     void pickerSaysWhenTheServerIsDown() throws Exception {
-        when(mcp.callTool("list_files", Map.of())).thenThrow(new McpUnavailableException("Files MCP server is down", null));
+        when(mcp.callTool("list_files", Map.of())).thenThrow(down("Files MCP server is down"));
 
         assertThat(get("/folder").body()).contains("Files MCP server is down", "name=\"path\"");
     }
@@ -171,7 +173,8 @@ class FolderChatIT {
     @Test
     void rejectedFolderShowsTheServersReasonAndKeepsPlainChat() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/etc")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
 
         var page = post("/folder", "path=" + enc("/etc"));
 
@@ -183,7 +186,8 @@ class FolderChatIT {
     @Test
     void folderOutsideTheAllowedRootsAsksForApproval() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/elsewhere")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
 
         String page = post("/folder", "path=" + enc("/elsewhere")).body();
 
@@ -196,7 +200,8 @@ class FolderChatIT {
     @Test
     void otherRefusalsDoNotOfferApproval() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/work/project/.git")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is excluded by policy: .git", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is excluded by policy: .git",
+                        McpErrorCode.TOOL_ERROR));
 
         assertThat(post("/folder", "path=" + enc("/work/project/.git")).body())
                 .contains("excluded by policy").doesNotContain("approve-dialog");
@@ -205,7 +210,7 @@ class FolderChatIT {
     @Test
     void allowOpensTheFolder() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/elsewhere")))
-                .thenReturn(new McpToolResult("{\"path\":\"/elsewhere\",\"entries\":[],\"truncated\":false}", false));
+                .thenReturn(McpToolResult.success("{\"path\":\"/elsewhere\",\"entries\":[],\"truncated\":false}"));
 
         var page = post("/folder/allow", "path=" + enc("/elsewhere"));
 
@@ -217,7 +222,8 @@ class FolderChatIT {
     @Test
     void allowRefusedByTheServerExplainsTheSetting() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/elsewhere")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
 
         String page = post("/folder/allow", "path=" + enc("/elsewhere")).body();
 
@@ -244,7 +250,7 @@ class FolderChatIT {
     @Test
     void mcpOutageWhileAskingIsShownAsAnError() throws Exception {
         post("/folder", "path=" + enc(FOLDER));
-        when(mcp.listTools()).thenThrow(new McpUnavailableException("Files MCP server is not reachable at x", null));
+        when(mcp.listTools()).thenThrow(down("Files MCP server is not reachable at x"));
 
         assertThat(post("/chat", "message=q").body()).contains("message error", "Files MCP server is not reachable at x");
     }
@@ -273,9 +279,11 @@ class FolderChatIT {
     @Test
     void apiMapsFailuresToStatusCodes() throws Exception {
         when(mcp.callTool("list_files", Map.of("path", "/etc")))
-                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots", true));
+                .thenReturn(new McpToolResult("ACCESS_DENIED: path is outside the allowed roots",
+                        McpErrorCode.TOOL_ERROR));
         when(mcp.callTool("list_files", Map.of("path", "/work/gone")))
-                .thenReturn(new McpToolResult("NOT_FOUND: no such file or directory: /work/gone", true));
+                .thenReturn(new McpToolResult("NOT_FOUND: no such file or directory: /work/gone",
+                        McpErrorCode.TOOL_ERROR));
 
         assertThat(postJson("/api/folder/ask", "{\"folder\":\"/etc\",\"question\":\"q\"}").statusCode()).isEqualTo(403);
         assertThat(postJson("/api/folder/ask", "{\"folder\":\"/work/gone\",\"question\":\"q\"}").statusCode()).isEqualTo(404);
@@ -287,7 +295,7 @@ class FolderChatIT {
         assertThat(postJson("/api/folder/ask", "{\"folder\":\"/work/project\",\"question\":\"q\"}").statusCode())
                 .isEqualTo(502);
 
-        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenThrow(new McpUnavailableException("down", null));
+        when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenThrow(down("down"));
         var down = postJson("/api/folder/ask", "{\"folder\":\"/work/project\",\"question\":\"q\"}");
         assertThat(down.statusCode()).isEqualTo(503);
         assertThat(down.body()).contains("MCP_UNAVAILABLE");
@@ -326,5 +334,9 @@ class FolderChatIT {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static McpUnavailableException down(String message) {
+        return new McpUnavailableException(McpErrorCode.CONNECTION_FAILED, "files", message, null);
     }
 }

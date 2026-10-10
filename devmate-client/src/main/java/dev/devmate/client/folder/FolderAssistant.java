@@ -4,8 +4,9 @@ import dev.devmate.client.llm.LlmClient;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
 import dev.devmate.client.llm.LlmTool;
+import dev.devmate.client.mcp.McpClientService;
+import dev.devmate.client.mcp.McpErrorCode;
 import dev.devmate.client.mcp.McpTool;
-import dev.devmate.client.mcp.McpToolClient;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
 import java.nio.file.InvalidPathException;
@@ -42,12 +43,12 @@ public class FolderAssistant {
     private static final int OVERVIEW_PROJECT_FILES = 15;
     private static final int OVERVIEW_RECENT_FILES = 5;
 
-    private final McpToolClient mcp;
+    private final McpClientService mcp;
     private final LlmClient llm;
     private final AgentProperties limits;
     private final JsonMapper json;
 
-    public FolderAssistant(McpToolClient mcp, LlmClient llm, AgentProperties limits, JsonMapper json) {
+    public FolderAssistant(McpClientService mcp, LlmClient llm, AgentProperties limits, JsonMapper json) {
         this.mcp = mcp;
         this.llm = llm;
         this.limits = limits;
@@ -296,7 +297,8 @@ public class FolderAssistant {
         try {
             return json.readTree(text);
         } catch (JacksonException e) {
-            throw new McpUnavailableException("Files MCP server at " + mcp.url() + " sent an unreadable result", e);
+            throw new McpUnavailableException(McpErrorCode.TRANSPORT_ERROR, "files",
+                    "Files MCP server sent an unreadable result", e);
         }
     }
 }

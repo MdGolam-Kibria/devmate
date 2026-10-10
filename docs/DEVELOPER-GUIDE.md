@@ -13,13 +13,15 @@ design decisions see [docs/decisions](decisions).
 | 🔵 | **M1 Files MCP server** (`devmate-files-mcp`) | MCP server with `list_files`, `read_file`, `search_code`, sandboxed to configured folders, read-only |
 | ➕ | **LLM switch** (pulled forward from M3) | `devmate-client` talks to **Anthropic Claude** or **local Ollama**, chosen in `application.yml` |
 | ➕ | **Web UI** | Chat page at `http://localhost:8083/` (Thymeleaf), opens in your browser on startup |
-| ➕ | **Ask about a folder** (slice of M2 + M3) | Open a folder in the UI; the model reads/searches it through the files MCP server's tools |
-| ⚪ | M2 MCP client, M3 agent, … | Milestones still open: only the folder slice exists (one server, no multi-turn memory) |
+| 🔵 | **M2 MCP client** | Connects to any number of MCP servers, discovers and registers their tools, calls them; typed errors; `/api/mcp` works without an LLM |
+| ➕ | **Ask about a folder** (slice of M3) | Open a folder in the UI; the model reads/searches it through the files MCP server's tools |
+| ⚪ | M3 agent, … | Milestones still open: only the folder slice of the agent exists (no multi-turn memory) |
 
 ```text
  Browser ──► devmate-client :8083 ──► LLM (Anthropic API  or  Ollama :11434)
              (UI, /api/chat,          ▲ tool calls / results
-              /api/folder/ask)        │
+              /api/folder/ask,        │
+              /api/mcp)               │
                     └── MCP client ───┴──► devmate-files-mcp :8091/mcp ──► allowed folders (read-only)
 ```
 
@@ -180,6 +182,28 @@ curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' \
 
 Health: `curl localhost:8083/actuator/health` returns `{"status":"UP",…}`.
 
+**MCP without an LLM (M2).** With the files MCP server running:
+
+```bash
+curl -s localhost:8083/api/mcp/servers | jq            # each server: state, serverName, protocolVersion, tools, error
+curl -s localhost:8083/api/mcp/tools | jq '.tools[] | {server, name, readOnly}'
+curl -s -X POST localhost:8083/api/mcp/tools/search_code/call -H 'Content-Type: application/json' \
+     -d '{"arguments":{"query":"Kafka"}}' | jq
+# {"tool":"search_code","server":"files","error":false,"errorCode":null,"text":"{\"query\":\"Kafka\",\"matches\":[…]}","durationMs":41}
+```
+
+| Status | `errorCode` / `code` | Meaning |
+|---|---|---|
+| 200 | – / `TOOL_ERROR` | The tool ran; `TOOL_ERROR` = it reported a failure (`text` = `NOT_FOUND: …`, `ACCESS_DENIED: …`) |
+| 400 | `INVALID_ARGUMENTS` | Arguments don't match the tool's `inputSchema` (checked before sending) or the server rejected them |
+| 403 | `TOOL_NOT_ALLOWED` | The tool isn't declared read-only; DevMate won't run it before M13 |
+| 404 | `UNKNOWN_TOOL` | No server offers it |
+| 502 / 504 | `SERVER_ERROR` / `TIMEOUT` | JSON-RPC error from the server / no answer within `request-timeout` |
+| 503 | `MCP_UNAVAILABLE` + `CONNECTION_FAILED`, `SESSION_ERROR`, `TRANSPORT_ERROR`, `TIMEOUT` | The server can't be used; `message` says which and why |
+
+Add another MCP server with `--devmate.mcp.servers.<name>.url=http://127.0.0.1:<port>/mcp` (and `.priority` if its
+tool names clash with `files`, which has priority 10). See [ADR-0004](decisions/ADR-0004-mcp-client.md).
+
 ---
 
 ## 5. Run and use the files MCP server (`devmate-files-mcp`)
@@ -250,7 +274,7 @@ DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT
 
 Reports: `*/target/surefire-reports` (unit), `*/target/failsafe-reports` (integration).
 
-### 6.2 What the tests cover (≈107)
+### 6.2 What the tests cover (278)
 
 | Module | Suite | Kind | Covers |
 |---|---|---|---|
@@ -263,6 +287,9 @@ Reports: `*/target/surefire-reports` (unit), `*/target/failsafe-reports` (integr
 | client | `MarkdownRendererTest` | unit | Lists/code/tables render; `<script>`, `javascript:` neutralised |
 | client | `BrowserLauncherTest` | unit | Right open command per OS; nothing on headless Linux |
 | client | `OllamaLiveIT` | live, opt-in | Real round trip to local Ollama |
+| client | `McpClientServiceIT` | IT | MCP client over real Streamable HTTP: discovery, registry, execution, every error code, reconnect, roots |
+| client | `McpControllerIT` | IT | `/api/mcp` through the whole app against a real MCP server and a down one |
+| client | `ToolExecutorTest`, `ToolRegistryTest`, `McpConnectionTest`, `McpClientPropertiesTest`, `HostHeaderFilterTest` | unit | Policy, schema check, error mapping, cache, priority, failure classification, config, DNS-rebinding guard |
 | files-mcp | `FileAccessPolicyTest` | unit | Traversal, symlink escape, secrets, invalid paths |
 | files-mcp | `FileServiceTest` | unit | List/read/search behaviour and limits |
 | files-mcp | `FileToolsTest` | unit | MCP result/error format |
@@ -286,6 +313,7 @@ Each milestone has a test-case document and a script that runs every case agains
 | Milestone | Test cases | Run |
 |---|---|---|
 | M1 Files MCP | [docs/testing/M1-files-mcp-test-cases.md](testing/M1-files-mcp-test-cases.md) (56) | `./scripts/check-files-mcp.sh` |
+| M2 MCP client | [docs/testing/M2-mcp-client-test-cases.md](testing/M2-mcp-client-test-cases.md) (42) | `./scripts/check-mcp-client.sh` (real files MCP + fake misbehaving MCP, no LLM) |
 | Web UI chat | [docs/testing/UI-chat-test-cases.md](testing/UI-chat-test-cases.md) (89 + 4 live) | `./scripts/check-client.sh` (`LIVE=1` for real Ollama) |
 
 ```text
@@ -326,6 +354,9 @@ ALL 35 CASES PASSED — the Files MCP server is working.
 | Browser didn't open | No desktop session, or `DEVMATE_OPEN_BROWSER=false`. Open the logged URL manually |
 | Files MCP won't start | With `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false`, set `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`; each folder must exist |
 | "Files MCP server is not reachable at …" | Start `devmate-files-mcp`, or point `DEVMATE_FILES_MCP_URL` at it |
+| 403 `HOST_NOT_ALLOWED` | You reached DevMate by a name other than `localhost`/`127.0.0.1`/`[::1]` (e.g. after changing `DEVMATE_ADDRESS`): add it to `DEVMATE_ALLOWED_HOSTS` |
+| 403 `TOOL_NOT_ALLOWED` from `/api/mcp` | The server doesn't mark that tool `readOnlyHint=true`; DevMate only runs read-only tools until M13 |
+| A tool from a new server isn't used | Another server with a lower `priority` offers the same name (log: `MCP tool name clash`) |
 | Opening a folder says `ACCESS_DENIED: … outside the allowed roots` | Click **Allow** in the popup (needs `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true` on the server, the default), or add it to `DEVMATE_FILESYSTEM_ALLOWED_ROOTS` and restart the server. Roots are comma-separated **absolute** paths: `/a,/home/me/b`, not `/a,me/b` |
 | Allow says "did not accept the approval" | The files MCP server runs with `DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=false`, or the folder doesn't exist |
 | Folder answer has no "Tools used" | The model answered without looking. Ask it to "use search_code", or use a stronger model |
