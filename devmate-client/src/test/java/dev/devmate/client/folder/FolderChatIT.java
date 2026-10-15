@@ -2,6 +2,7 @@ package dev.devmate.client.folder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -13,12 +14,14 @@ import dev.devmate.client.llm.LlmClient;
 import dev.devmate.client.llm.LlmException;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
+import dev.devmate.client.llm.LlmTool;
 import dev.devmate.client.llm.LlmToolCall;
 import dev.devmate.client.mcp.McpClientService;
 import dev.devmate.client.mcp.McpErrorCode;
 import dev.devmate.client.mcp.McpTool;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
+import dev.devmate.client.mcp.ToolRegistry;
 import java.net.CookieManager;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -47,6 +50,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 class FolderChatIT {
 
     private static final String FOLDER = "/work/project";
+    private static final Map<String, Object> PATH_SCHEMA =
+            Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")));
     private static final String LISTING = """
             {"path":"/work/project","entries":[{"name":"src","path":"/work/project/src","type":"DIRECTORY","size":0}],
              "truncated":false}""";
@@ -79,13 +84,14 @@ class FolderChatIT {
                 "{\"path\":null,\"entries\":[{\"name\":\"/work\",\"path\":\"/work\",\"type\":\"DIRECTORY\"}]}"));
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "search_code", "Find text",
                 Map.of("type", "object", "properties", Map.of("query", Map.of(), "path", Map.of())), true)));
+        when(mcp.tools(anyBoolean())).thenAnswer(call -> new ToolRegistry.Catalog(mcp.listTools(), List.of()));
     }
 
     @Test
-    void withoutAFolderThePageIsPlainChat() throws Exception {
+    void withoutAFolderThePageOffersTheGeneralAgent() throws Exception {
         String page = get("/").body();
 
-        assertThat(page).contains("No folder open: plain chat.", "Open a folder").doesNotContain("folder-path");
+        assertThat(page).contains("No folder open: DevMate uses every tool", "Open a folder").doesNotContain("folder-path");
         verify(mcp, never()).callTool(any(), anyMap());
     }
 
@@ -238,13 +244,18 @@ class FolderChatIT {
     }
 
     @Test
-    void closingTheFolderReturnsToPlainChat() throws Exception {
+    void closingTheFolderReturnsToTheGeneralAgent() throws Exception {
         when(llm.chat(any())).thenReturn(new LlmResponse("plain", "m", null, null));
+        when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true),
+                new McpTool("git", "git_status", "", Map.of("type", "object"), true)));
         post("/folder", "path=" + enc(FOLDER));
 
-        assertThat(post("/folder/close", "").body()).contains("No folder open: plain chat.");
+        assertThat(post("/folder/close", "").body()).contains("No folder open: DevMate uses every tool");
         post("/chat", "message=hi");
-        verify(llm).chat(LlmRequest.of("hi"));
+        // no folder: every read-only tool, not only those with a path, and nothing pins the path any more
+        verify(llm).chat(argThat((LlmRequest r) -> r.userMessage().equals("hi")
+                && r.tools().stream().map(LlmTool::name).toList().equals(List.of("read_file", "git_status"))
+                && !r.systemPrompt().contains(FOLDER)));
     }
 
     @Test

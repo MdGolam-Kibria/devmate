@@ -2,12 +2,14 @@ package dev.devmate.client.ui;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import dev.devmate.client.llm.LlmClient;
 import dev.devmate.client.llm.LlmException;
+import dev.devmate.client.llm.LlmMessage;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
 import java.net.CookieManager;
@@ -16,6 +18,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,7 +70,36 @@ class ChatPageIT {
         assertThat(page.body())
                 .contains(">What is Kafka?<", ">Kafka is a log.<", "claude-sonnet-5-5 · 11 in / 4 out tokens")
                 .doesNotContain("Ask DevMate");
-        verify(llm).chat(LlmRequest.of("What is Kafka?"));
+        verify(llm).chat(argThat((LlmRequest r) -> r.userMessage().equals("What is Kafka?") && r.history().isEmpty()));
+    }
+
+    @Test
+    void laterQuestionsCarryTheConversationButNotErrors() throws Exception {
+        when(llm.chat(any())).thenAnswer(call -> switch (((LlmRequest) call.getArgument(0)).userMessage()) {
+            case "boom" -> throw new LlmException("LLM provider 'anthropic' failed: 500", null);
+            case "What is my name?" -> new LlmResponse("Rahim.", "m", null, null);
+            default -> new LlmResponse("Noted, Rahim.", "m", null, null);
+        });
+        post("/chat", "message=" + enc("My name is Rahim"));
+        post("/chat", "message=boom");
+
+        post("/chat", "message=" + enc("What is my name?"));
+
+        verify(llm).chat(argThat((LlmRequest r) -> r.userMessage().equals("What is my name?")
+                && r.history().equals(List.of(LlmMessage.user("My name is Rahim"), LlmMessage.assistant("Noted, Rahim.")))));
+        post("/chat/clear", "");
+        post("/chat", "message=" + enc("What is my name?"));
+        verify(llm).chat(argThat((LlmRequest r) -> r.userMessage().equals("What is my name?") && r.history().isEmpty()));
+    }
+
+    @Test
+    void unreachableMcpServerIsNotedButTheQuestionIsAnswered() throws Exception {
+        when(llm.chat(any())).thenReturn(new LlmResponse("general answer", "m", null, null));
+
+        assertThat(post("/chat", "message=hello").body())
+                .contains(">general answer<", "unreachable MCP: files (answered without its tools)");
+        verify(llm).chat(argThat((LlmRequest r) -> r.tools().isEmpty()
+                && r.systemPrompt().contains("unreachable, so their tools are missing: files")));
     }
 
     @Test

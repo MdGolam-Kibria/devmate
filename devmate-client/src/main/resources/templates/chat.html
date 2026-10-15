@@ -35,7 +35,7 @@
             </form>
         </th:block>
         <th:block th:if="${folder == null and picking == null}">
-            <span class="folder-meta">No folder open: plain chat.</span>
+            <span class="folder-meta">No folder open: DevMate uses every tool of its MCP servers (files: the allowed folders).</span>
             <a class="ghost small" id="open-folder" th:href="@{/folder}">📁 Open a folder</a>
         </th:block>
         <div th:if="${picking != null}" class="folder-picker" id="folder-picker">
@@ -138,7 +138,7 @@
 
         <div class="empty" th:if="${entries.isEmpty() and folder == null}">
             <h1>Ask DevMate</h1>
-            <p>Plain chat with the configured model. Open a folder to ask questions about its code.</p>
+            <p>DevMate answers with the tools of its MCP servers. Open a folder to keep questions inside one project.</p>
             <div class="suggestions">
                 <button type="button" class="suggestion" data-text="In two sentences, what is the outbox pattern?">
                     What is the outbox pattern?

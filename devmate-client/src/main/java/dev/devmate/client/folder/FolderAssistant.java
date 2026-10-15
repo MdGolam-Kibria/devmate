@@ -1,12 +1,11 @@
 package dev.devmate.client.folder;
 
-import dev.devmate.client.llm.LlmClient;
-import dev.devmate.client.llm.LlmRequest;
-import dev.devmate.client.llm.LlmResponse;
-import dev.devmate.client.llm.LlmTool;
+import dev.devmate.client.agent.AgentProperties;
+import dev.devmate.client.agent.DevMateAgent;
+import dev.devmate.client.agent.FolderScope;
+import dev.devmate.client.llm.LlmMessage;
 import dev.devmate.client.mcp.McpClientService;
 import dev.devmate.client.mcp.McpErrorCode;
-import dev.devmate.client.mcp.McpTool;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
 import java.nio.file.InvalidPathException;
@@ -15,28 +14,24 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.StringJoiner;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Answers questions about one folder: the model gets the files MCP server's tools, discovered at question time and
- * pinned to the folder by {@link FolderScope}, and calls them to read and search the code.
+ * The folder side of folder Q&amp;A: suggest, open and approve folders through the files MCP server, and describe the
+ * open folder to the {@link DevMateAgent}, which answers with the tools pinned to it (ADR-0005).
  *
- * <p>Only tools that are read-only ({@code readOnlyHint}) and take a {@code path} are offered: those are the ones
- * DevMate can confine to the folder. Only two tools are named here: {@code list_files} opens the folder, and
- * {@code folder_overview}, when the server has it, puts a short digest of the folder into the system prompt so even a
- * model that calls no tools knows what kind of project it is looking at.
+ * <p>Only two tools are named here: {@code list_files} opens the folder, and {@code folder_overview}, when the server
+ * has it, puts a short digest of the folder into the system prompt so even a model that calls no tools knows what
+ * kind of project it is looking at.
  */
 @Service
 public class FolderAssistant {
 
-    private static final TypeReference<Map<String, Object>> ARGUMENTS = new TypeReference<>() {};
     private static final String LIST_TOOL = "list_files";
     private static final String OVERVIEW_TOOL = "folder_overview";
     private static final int OVERVIEW_FILE_TYPES = 8;
@@ -44,13 +39,13 @@ public class FolderAssistant {
     private static final int OVERVIEW_RECENT_FILES = 5;
 
     private final McpClientService mcp;
-    private final LlmClient llm;
+    private final DevMateAgent agent;
     private final AgentProperties limits;
     private final JsonMapper json;
 
-    public FolderAssistant(McpClientService mcp, LlmClient llm, AgentProperties limits, JsonMapper json) {
+    public FolderAssistant(McpClientService mcp, DevMateAgent agent, AgentProperties limits, JsonMapper json) {
         this.mcp = mcp;
-        this.llm = llm;
+        this.agent = agent;
         this.limits = limits;
         this.json = json;
     }
@@ -118,24 +113,20 @@ public class FolderAssistant {
     }
 
     /**
-     * Answers a question about the folder, letting the model call the folder-scoped tools.
+     * Answers a question about the folder; the model may call the tools pinned to it.
      *
+     * @param history earlier questions and answers of the conversation, oldest first
      * @throws FolderException         if the folder is no longer usable
      * @throws McpUnavailableException if the server can't be reached
      * @throws dev.devmate.client.llm.LlmException if the model fails
      */
-    public LlmResponse ask(String folder, String question) {
+    public DevMateAgent.Answer ask(String folder, String question, List<LlmMessage> history) {
         FolderSnapshot snapshot = open(folder);
-        var scope = new FolderScope(snapshot.path());
-        List<McpTool> available = mcp.listTools();
-        List<LlmTool> tools = available.stream()
-                .filter(tool -> tool.readOnly() && tool.hasParameter(FolderScope.PATH))
-                .map(tool -> toLlmTool(tool, scope))
-                .toList();
-        String overview = available.stream().anyMatch(tool -> tool.name().equals(OVERVIEW_TOOL))
+        String overview = mcp.listTools().stream().anyMatch(tool -> tool.name().equals(OVERVIEW_TOOL))
                 ? overview(snapshot.path())
                 : null;
-        return llm.chat(new LlmRequest(systemPrompt(snapshot, overview), question, tools, limits.maxToolRounds()));
+        return agent.ask(new DevMateAgent.Question(question, history,
+                new DevMateAgent.Folder(snapshot.path(), context(snapshot, overview))));
     }
 
     /**
@@ -218,79 +209,17 @@ public class FolderAssistant {
         return path;
     }
 
-    private LlmTool toLlmTool(McpTool tool, FolderScope scope) {
-        // The server's own wording ("relative to the first allowed root", "omit to list the roots") no longer holds.
-        String description = tool.description()
-                + " In DevMate, 'path' is relative to the selected folder; omit it to use the folder itself.";
-        return new LlmTool(tool.name(), description, json.writeValueAsString(tool.inputSchema()), arguments -> {
-            Map<String, Object> scoped;
-            try {
-                scoped = scope.apply(json.readValue(arguments, ARGUMENTS));
-            } catch (JacksonException e) {
-                return LlmTool.Output.error("INVALID_ARGUMENT: arguments must be a JSON object");
-            } catch (FolderException e) {
-                return LlmTool.Output.error(e.getMessage());
-            }
-            McpToolResult result = mcp.callTool(tool.name(), scoped);
-            String text = truncate(result.text());
-            return new LlmTool.Output(text, result.error(), summarize(result, text.length() < result.text().length()));
-        });
-    }
-
-    /**
-     * One line on a tool's outcome for the user: for a JSON object, its top-level counts and flags (arrays as their
-     * size; strings such as paths and content are left out), e.g. {@code matches=3 filesScanned=40 truncated=false}.
-     * Null (the {@link LlmTool.Output} default) for errors and for anything else.
-     */
-    private String summarize(McpToolResult result, boolean cutOff) {
-        if (result.error()) {
-            return null;
-        }
-        var stats = new StringJoiner(" ");
-        try {
-            json.readTree(result.text()).properties().forEach(field -> {
-                JsonNode value = field.getValue();
-                if (value.isArray()) {
-                    stats.add(field.getKey() + "=" + value.size());
-                } else if (value.isNumber() || value.isBoolean()) {
-                    stats.add(field.getKey() + "=" + value);
-                }
-            });
-        } catch (JacksonException e) {
-            // not JSON: the default summary (its length) is all we can say
-        }
-        if (cutOff) {
-            stats.add("(cut off by DevMate at " + limits.maxToolResultChars() + " chars)");
-        }
-        return stats.length() == 0 ? null : stats.toString();
-    }
-
-    private String systemPrompt(FolderSnapshot folder, String overview) {
-        var prompt = new StringBuilder("""
-                You are DevMate, a developer assistant. Answer questions about the project folder %s.
-                Look at the code with the available tools before answering; never guess file contents.
-                Tool paths may be absolute or relative to that folder; only files inside it are available.
-                Mention the files (relative paths) and line numbers your answer is based on.
-                If the tools find nothing relevant, say so. Answer in the language of the question.
-                """.formatted(folder.path()));
-        prompt.append("\nTop-level entries of the folder:\n");
-        folder.entries().stream().limit(limits.maxListedEntries()).forEach(e -> prompt.append("- ").append(e).append('\n'));
+    /** The folder's top-level entries and overview, for the agent's system prompt. */
+    private String context(FolderSnapshot folder, String overview) {
+        var context = new StringBuilder("\nTop-level entries of the folder:\n");
+        folder.entries().stream().limit(limits.maxListedEntries()).forEach(e -> context.append("- ").append(e).append('\n'));
         if (folder.truncated() || folder.entries().size() > limits.maxListedEntries()) {
-            prompt.append("- … (more entries not shown)\n");
+            context.append("- … (more entries not shown)\n");
         }
         if (overview != null) {
-            prompt.append("\nFolder overview (secrets and build/VCS directories excluded):\n").append(overview);
+            context.append("\nFolder overview (secrets and build/VCS directories excluded):\n").append(overview);
         }
-        return prompt.toString();
-    }
-
-    private String truncate(String text) {
-        int max = limits.maxToolResultChars();
-        if (text.length() <= max) {
-            return text;
-        }
-        int end = Character.isHighSurrogate(text.charAt(max - 1)) ? max - 1 : max;
-        return text.substring(0, end) + "\n…[output cut off by DevMate after " + max + " characters]";
+        return context.toString();
     }
 
     private JsonNode parse(String text) {

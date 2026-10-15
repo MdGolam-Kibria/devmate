@@ -27,7 +27,7 @@ import org.springframework.boot.web.server.WebServer;
  * the actual protocol without depending on the files MCP module. Counts calls per tool, and can be told to forget its
  * sessions once (the next request with a session id gets 404).
  */
-final class TestMcpServer implements AutoCloseable {
+public final class TestMcpServer implements AutoCloseable {
 
     static final Map<String, Object> PATH_SCHEMA =
             Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string")));
@@ -48,7 +48,7 @@ final class TestMcpServer implements AutoCloseable {
     }
 
     /** A server with the standard tools; {@code announceChanges} = tools capability {@code listChanged}. */
-    static TestMcpServer start(String name, boolean announceChanges, SyncToolSpecification... tools) {
+    public static TestMcpServer start(String name, boolean announceChanges, SyncToolSpecification... tools) {
         var server = new TestMcpServer(name, announceChanges);
         server.startOn(0, tools);
         return server;
@@ -92,16 +92,16 @@ final class TestMcpServer implements AutoCloseable {
     }
 
     /** Restarts on the same port with these tools: all sessions are gone. */
-    void restart(SyncToolSpecification... tools) {
+    public void restart(SyncToolSpecification... tools) {
         stop();
         startOn(port, tools);
     }
 
-    URI url() {
+    public URI url() {
         return URI.create("http://127.0.0.1:" + port + "/mcp");
     }
 
-    int calls(String tool) {
+    public int calls(String tool) {
         return calls.computeIfAbsent(tool, t -> new AtomicInteger()).get();
     }
 
@@ -134,14 +134,14 @@ final class TestMcpServer implements AutoCloseable {
     }
 
     /** read_file: "content of &lt;path&gt;", or NOT_FOUND (isError) for "missing". */
-    SyncToolSpecification readFile() {
+    public SyncToolSpecification readFile() {
         return tool("read_file", true, PATH_SCHEMA, (t, args) -> "missing".equals(args.get("path"))
                 ? CallToolResult.builder().addTextContent("NOT_FOUND: missing").isError(true).build()
                 : text("content of " + args.get("path")));
     }
 
     /** search_code(query): fixed Kafka matches, like the files MCP server's JSON. */
-    SyncToolSpecification searchCode() {
+    public SyncToolSpecification searchCode() {
         return tool("search_code", true, QUERY_SCHEMA, (t, args) -> text(
                 "Kafka".equalsIgnoreCase(String.valueOf(args.get("query")))
                         ? "{\"query\":\"Kafka\",\"matches\":[{\"path\":\"/w/PaymentProducer.java\",\"line\":3},"
@@ -149,7 +149,7 @@ final class TestMcpServer implements AutoCloseable {
                         : "{\"query\":\"" + args.get("query") + "\",\"matches\":[],\"filesScanned\":12}"));
     }
 
-    SyncToolSpecification writeFile() {
+    public SyncToolSpecification writeFile() {
         return tool("write_file", false, PATH_SCHEMA, (t, args) -> text("written"));
     }
 
@@ -192,7 +192,7 @@ final class TestMcpServer implements AutoCloseable {
         return CallToolResult.builder().addTextContent(text).isError(false).build();
     }
 
-    static int freePort() {
+    public static int freePort() {
         try (var socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         } catch (IOException e) {

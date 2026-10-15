@@ -1,4 +1,4 @@
-package dev.devmate.client.folder;
+package dev.devmate.client.agent;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -12,25 +12,25 @@ import java.util.Map;
  * <p>This check is lexical. The real security boundary stays on the server (real paths, symlinks, deny lists); this
  * only keeps the model inside the folder the user chose, even when the server's sandbox is wider.
  */
-final class FolderScope {
+public final class FolderScope {
 
-    static final String PATH = "path";
+    public static final String PATH = "path";
 
     private final Path folder;
 
-    FolderScope(String folder) {
+    public FolderScope(String folder) {
         this.folder = Path.of(folder).toAbsolutePath().normalize();
     }
 
     /**
      * @return a copy of {@code arguments} whose {@code path} is absolute and inside the folder
-     * @throws FolderException {@code INVALID_ARGUMENT} or {@code ACCESS_DENIED}
+     * @throws ToolScopeException {@code INVALID_ARGUMENT} or {@code ACCESS_DENIED}
      */
-    Map<String, Object> apply(Map<String, Object> arguments) {
+    public Map<String, Object> apply(Map<String, Object> arguments) {
         var scoped = new LinkedHashMap<>(arguments);
         Object raw = scoped.get(PATH);
         if (raw != null && !(raw instanceof String)) {
-            throw new FolderException("INVALID_ARGUMENT: path must be a string");
+            throw new ToolScopeException("INVALID_ARGUMENT: path must be a string");
         }
         String requested = raw == null ? "" : ((String) raw).strip();
         scoped.put(PATH, requested.isEmpty() ? folder.toString() : resolve(requested).toString());
@@ -43,10 +43,10 @@ final class FolderScope {
             Path parsed = Path.of(requested);
             resolved = (parsed.isAbsolute() ? parsed : folder.resolve(parsed)).normalize();
         } catch (InvalidPathException e) {
-            throw new FolderException("INVALID_ARGUMENT: not a valid path");
+            throw new ToolScopeException("INVALID_ARGUMENT: not a valid path");
         }
         if (!resolved.startsWith(folder)) {
-            throw new FolderException("ACCESS_DENIED: path is outside the selected folder " + folder);
+            throw new ToolScopeException("ACCESS_DENIED: path is outside the selected folder " + folder);
         }
         return resolved;
     }

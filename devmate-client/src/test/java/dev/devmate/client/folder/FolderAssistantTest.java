@@ -3,6 +3,7 @@ package dev.devmate.client.folder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -11,7 +12,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import dev.devmate.client.agent.AgentProperties;
+import dev.devmate.client.agent.DevMateAgent;
 import dev.devmate.client.llm.LlmClient;
+import dev.devmate.client.llm.LlmMessage;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
 import dev.devmate.client.llm.LlmTool;
@@ -20,6 +24,8 @@ import dev.devmate.client.mcp.McpErrorCode;
 import dev.devmate.client.mcp.McpTool;
 import dev.devmate.client.mcp.McpToolResult;
 import dev.devmate.client.mcp.McpUnavailableException;
+import dev.devmate.client.mcp.ToolRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Folder Q&amp;A end to end through a real {@link DevMateAgent}, with the MCP client and the model mocked. */
 class FolderAssistantTest {
 
     private static final String FOLDER = "/work/project";
@@ -40,11 +47,14 @@ class FolderAssistantTest {
 
     private final McpClientService mcp = mock(McpClientService.class);
     private final LlmClient llm = mock(LlmClient.class);
-    private final FolderAssistant assistant =
-            new FolderAssistant(mcp, llm, new AgentProperties(5, 20, 60), JsonMapper.builder().build());
+    private final JsonMapper json = JsonMapper.builder().build();
+    private final AgentProperties limits = new AgentProperties(5, 20, 60, 12, 16000);
+    private final FolderAssistant assistant = new FolderAssistant(mcp,
+            new DevMateAgent(mcp, llm, limits, json, new SimpleMeterRegistry()), limits, json);
 
     @BeforeEach
     void folderExists() {
+        when(mcp.tools(anyBoolean())).thenAnswer(call -> new ToolRegistry.Catalog(mcp.listTools(), List.of()));
         when(mcp.callTool("list_files", Map.of("path", FOLDER))).thenReturn(McpToolResult.success(LISTING));
         when(llm.chat(any())).thenReturn(new LlmResponse("answer", "m", 1, 1));
     }
@@ -126,7 +136,8 @@ class FolderAssistantTest {
                 new McpTool("files", "delete_file", "Delete a file.", PATH_SCHEMA, false),
                 new McpTool("files", "server_time", "Time.", Map.of("type", "object"), true)));
 
-        assistant.ask(FOLDER, "What is in pom.xml?");
+        assistant.ask(FOLDER, "What is in pom.xml?",
+                List.of(LlmMessage.user("hi"), LlmMessage.assistant("hello")));
 
         LlmRequest request = sentRequest();
         assertThat(request.tools()).extracting(LlmTool::name).containsExactly("read_file");
@@ -136,13 +147,14 @@ class FolderAssistantTest {
         assertThat(request.maxToolRounds()).isEqualTo(5);
         assertThat(request.userMessage()).isEqualTo("What is in pom.xml?");
         assertThat(request.systemPrompt()).contains(FOLDER, "- src/", "- pom.xml");
+        assertThat(request.history()).containsExactly(LlmMessage.user("hi"), LlmMessage.assistant("hello"));
     }
 
     @Test
     void toolCallsArePinnedToTheFolder() {
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
         when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(McpToolResult.success("content"));
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
         LlmTool tool = sentRequest().tools().getFirst();
 
         assertThat(tool.handler().apply("{\"path\":\"src/A.java\"}")).isEqualTo(LlmTool.Output.ok("content"));
@@ -160,7 +172,7 @@ class FolderAssistantTest {
     void longToolOutputIsCutOff() {
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
         when(mcp.callTool(eq("read_file"), anyMap())).thenReturn(McpToolResult.success("x".repeat(50)));
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
 
         String text = sentRequest().tools().getFirst().handler().apply("{}").text();
 
@@ -172,7 +184,7 @@ class FolderAssistantTest {
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
         when(mcp.callTool(eq("read_file"), anyMap()))
                 .thenReturn(new McpToolResult("ACCESS_DENIED: .env", McpErrorCode.TOOL_ERROR));
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
 
         assertThat(sentRequest().tools().getFirst().handler().apply("{\"path\":\".env\"}"))
                 .isEqualTo(LlmTool.Output.error("ACCESS_DENIED: .env"));
@@ -183,7 +195,7 @@ class FolderAssistantTest {
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "search_code", "", PATH_SCHEMA, true)));
         when(mcp.callTool(eq("search_code"), anyMap())).thenReturn(McpToolResult.success(
                 "{\"query\":\"q\",\"matches\":[{\"path\":\"/secret\"}],\"filesScanned\":4,\"truncated\":false}"));
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
 
         LlmTool.Output output = sentRequest().tools().getFirst().handler().apply("{}");
 
@@ -202,7 +214,7 @@ class FolderAssistantTest {
                  "largestFiles":[],
                  "recentlyModified":[{"path":"/work/project/src/A.java","modified":"2026-10-01T00:00:00Z"}]}"""));
 
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
 
         assertThat(sentRequest().systemPrompt()).contains("""
                 Folder overview (secrets and build/VCS directories excluded):
@@ -216,7 +228,7 @@ class FolderAssistantTest {
     @Test
     void overviewIsLeftOutWhenTheServerLacksOrRefusesIt() {
         when(mcp.listTools()).thenReturn(List.of(new McpTool("files", "read_file", "", PATH_SCHEMA, true)));
-        assistant.ask(FOLDER, "q");
+        assistant.ask(FOLDER, "q", List.of());
         assertThat(sentRequest().systemPrompt()).doesNotContain("Folder overview");
         verify(mcp, never()).callTool(eq("folder_overview"), anyMap());
 
@@ -232,7 +244,7 @@ class FolderAssistantTest {
         when(mcp.callTool("list_files", Map.of("path", FOLDER)))
                 .thenThrow(down("Files MCP server is not reachable"));
 
-        assertThatThrownBy(() -> assistant.ask(FOLDER, "q")).isInstanceOf(McpUnavailableException.class);
+        assertThatThrownBy(() -> assistant.ask(FOLDER, "q", List.of())).isInstanceOf(McpUnavailableException.class);
         verify(llm, never()).chat(any());
     }
 

@@ -66,10 +66,12 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   is both). No-LLM API `/api/mcp` (`McpController`). `web/HostHeaderFilter` refuses foreign `Host` headers
   (`DEVMATE_ALLOWED_HOSTS`). Tests: `TestMcpServer` (SDK server on embedded Tomcat, fault switches); acceptance uses
   `scripts/support/fake_mcp.py` (misbehaving Streamable HTTP server, `/__calls`, `/__expire`).
-- Folder Q&A (client): `mcp/McpClientService` →
-  `folder/FolderAssistant` maps discovered MCP tools to `llm/LlmTool` (only `readOnlyHint` + a `path` param),
-  `FolderScope` pins `path` to the open folder → `SpringAiLlmClient` runs the tool loop itself (Spring AI 2.0 chat
-  models never execute tools). Tool options must start from `chatModel.getOptions().mutate()`: options passed with a
+- Agent (M3, ADR-0005): `agent/DevMateAgent` → `McpClientService.tools()` → read-only tools → `McpToolBridge` →
+  `llm/LlmTool`; with a folder only `path` tools, pinned by `agent/FolderScope`. `folder/FolderAssistant` only opens /
+  approves folders and builds the folder context. History: question/answer pairs only, trimmed by the agent.
+  Fake model also knows `TOOLS`/`HISTORY`/`CALL <tool> <json>`. Acceptance: `scripts/check-agent.sh`.
+- Folder Q&A (client): `mcp/McpClientService` → `FolderAssistant` → `DevMateAgent` → `SpringAiLlmClient` runs the
+  tool loop itself (Spring AI 2.0 chat models never execute tools). Tool options must start from `chatModel.getOptions().mutate()`: options passed with a
   prompt replace the defaults (model was null). Tool errors go back to the model; `McpUnavailableException` aborts.
   Fake model tool keywords: `SEARCH`/`READ`/`LIST`/`TREE`/`FIND <glob>`/`OVERVIEW`/`RANGE <path> <a> <b>`/`LOOP`/`SYSTEM`
   (`fake_ollama.py`). The page shows the whole history: UI cases that assert something is *absent* clear the chat first.
@@ -144,3 +146,11 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   `fake_mcp.py`, no LLM); `check-client.sh` 89/89, `check-files-mcp.sh` 56/56. Negative checks: 0.0.0.0 → TC-37, policy
   removed → TC-16/29/39, attacker host allowed → TC-42 FAIL. Found by the acceptance run: clash order depended on
   property-source order → explicit `priority`; oversized answers were retried → not any more.
+- 2026-10-16 — M3 agent (ADR-0005): `agent/DevMateAgent` gives the model every read-only tool of every reachable MCP
+  server (discovered per question, none hardcoded); folder questions offer only `path` tools pinned by `FolderScope`
+  (moved to `agent/`); unreachable servers drop out instead of failing; conversation memory (`LlmRequest.history`,
+  `ChatHistory.conversation()`, `max-history-messages` 12 / `max-history-chars` 16000); `POST /api/agent/ask`;
+  no-folder UI chat uses the agent; `/api/chat` stays plain. Client 110 unit + 78 IT; `check-agent.sh` 37/37
+  (+3 LIVE); regressions 89/42/56 green. Negative checks: 0.0.0.0 → TC-33, no read-only filter → TC-07/27, no folder
+  scope → TC-11/29 FAIL. Live: llama3.2:3b picked `search_code` for the Bangla DoD question and answered in Bangla
+  (1–4 min per answer on CPU).

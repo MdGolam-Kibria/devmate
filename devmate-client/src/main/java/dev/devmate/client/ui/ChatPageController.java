@@ -1,10 +1,11 @@
 package dev.devmate.client.ui;
 
+import dev.devmate.client.agent.DevMateAgent;
 import dev.devmate.client.folder.FolderAssistant;
 import dev.devmate.client.folder.FolderException;
 import dev.devmate.client.folder.FolderSnapshot;
-import dev.devmate.client.llm.LlmClient;
 import dev.devmate.client.llm.LlmException;
+import dev.devmate.client.llm.LlmMessage;
 import dev.devmate.client.llm.LlmProperties;
 import dev.devmate.client.llm.LlmRequest;
 import dev.devmate.client.llm.LlmResponse;
@@ -23,15 +24,15 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
  * Server-rendered chat page (Thymeleaf). Works without JavaScript; every POST redirects back to {@code /}
  * (post/redirect/get) so a browser refresh never re-sends a question.
  *
- * <p>Without a folder it is plain chat. With a folder open, questions go to {@link FolderAssistant}, which lets the
- * model read and search that folder through the files MCP server.
+ * <p>Questions go to the {@link DevMateAgent} with the conversation so far. Without a folder the model may use every
+ * read-only tool of the MCP servers; with a folder open, {@link FolderAssistant} pins the tools to that folder.
  */
 @Controller
 public class ChatPageController {
 
     private static final int MAX_PATH_LENGTH = 4096;
 
-    private final LlmClient llm;
+    private final DevMateAgent agent;
     private final LlmProperties properties;
     private final ChatHistory history;
     private final MarkdownRenderer markdown;
@@ -39,9 +40,9 @@ public class ChatPageController {
     private final FolderAssistant folders;
     private final FolderBrowser browser;
 
-    public ChatPageController(LlmClient llm, LlmProperties properties, ChatHistory history, MarkdownRenderer markdown,
+    public ChatPageController(DevMateAgent agent, LlmProperties properties, ChatHistory history, MarkdownRenderer markdown,
                               SelectedFolder folder, FolderAssistant folders, FolderBrowser browser) {
-        this.llm = llm;
+        this.agent = agent;
         this.properties = properties;
         this.history = history;
         this.markdown = markdown;
@@ -165,13 +166,17 @@ public class ChatPageController {
             return "redirect:/";
         }
 
+        List<LlmMessage> conversation = history.conversation();
         history.add(Role.USER, question, null, null);
         String path = folder.path();
         long start = System.nanoTime();
         try {
-            LlmResponse answer = path == null ? llm.chat(LlmRequest.of(question)) : folders.ask(path, question);
-            history.add(Role.ASSISTANT, answer.text(), markdown.toSafeHtml(answer.text()), details(answer, start),
-                    answer.toolCalls().stream().map(ChatPageController::describe).toList());
+            DevMateAgent.Answer answer = path == null
+                    ? agent.ask(DevMateAgent.Question.general(question, conversation))
+                    : folders.ask(path, question, conversation);
+            LlmResponse response = answer.response();
+            history.add(Role.ASSISTANT, response.text(), markdown.toSafeHtml(response.text()), details(answer, start),
+                    response.toolCalls().stream().map(ChatPageController::describe).toList());
         } catch (LlmException | McpUnavailableException | FolderException e) {
             history.add(Role.ERROR, e.getMessage(), null, null);
         }
@@ -189,7 +194,8 @@ public class ChatPageController {
                 (call.error() ? "error: " : "") + call.summary(), call.error(), call.durationMs());
     }
 
-    private static String details(LlmResponse answer, long startNanos) {
+    private static String details(DevMateAgent.Answer agentAnswer, long startNanos) {
+        LlmResponse answer = agentAnswer.response();
         var details = new StringBuilder(answer.model());
         if (answer.inputTokens() != null && answer.outputTokens() != null) {
             details.append(" · ").append(answer.inputTokens()).append(" in / ")
@@ -199,6 +205,11 @@ public class ChatPageController {
             details.append(" · ").append(answer.toolCalls().size())
                     .append(answer.toolCalls().size() == 1 ? " tool call" : " tool calls");
         }
-        return details.append(" · ").append((System.nanoTime() - startNanos) / 1_000_000).append(" ms").toString();
+        details.append(" · ").append((System.nanoTime() - startNanos) / 1_000_000).append(" ms");
+        if (!agentAnswer.unavailableServers().isEmpty()) {
+            details.append(" · unreachable MCP: ").append(String.join(", ", agentAnswer.unavailableServers()))
+                    .append(" (answered without its tools)");
+        }
+        return details.toString();
     }
 }

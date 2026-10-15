@@ -18,7 +18,11 @@ Tool calling (only when DevMate sent tool definitions, i.e. a folder is open). K
   "OVERVIEW"           -> calls folder_overview {}
   "RANGE <path> <a> <b>" -> calls read_file {"path": path, "startLine": a, "endLine": b}
   "LOOP"               -> calls list_files on every round (DevMate must stop it)
+  "CALL <tool> <json>" -> calls any tool by name with the given JSON arguments (even one DevMate didn't offer)
+Without tool definitions too:
   "SYSTEM"             -> replies with the system prompt it received
+  "TOOLS"              -> replies "Tools offered: <names>" (or "none"): the tool definitions DevMate sent
+  "HISTORY"            -> replies "History: <n> messages: role: text | …": the earlier turns DevMate sent
 Once tool results are in the conversation it replies "From the tools:" followed by each result (first 600 chars).
 
 GET /__count returns how many /api/chat calls were received (to prove a message was NOT sent to the model).
@@ -98,6 +102,10 @@ class Handler(BaseHTTPRequestHandler):
             last_request = request
         user = next((m.get("content", "") for m in reversed(request.get("messages", []))
                      if m.get("role") == "user"), "")
+        context_reply = self._context_step(request, user)
+        if context_reply is not None:
+            self._json(200, context_reply)
+            return
         tool_reply = self._tool_step(request, user)
         if tool_reply is not None:
             self._json(200, tool_reply)
@@ -123,6 +131,23 @@ class Handler(BaseHTTPRequestHandler):
         })
 
 
+    def _context_step(self, request, user):
+        """Replies that describe what DevMate sent (system prompt, tools, history), or None."""
+        words = user.split()
+        messages = request.get("messages", [])
+        if "SYSTEM" in words:
+            system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+            return self._reply(request, "System prompt was: " + system)
+        if "TOOLS" in words:
+            names = [t.get("function", {}).get("name", "?") for t in request.get("tools") or []]
+            return self._reply(request, "Tools offered: " + (", ".join(names) if names else "none"))
+        if "HISTORY" in words:
+            last_user = max(i for i, m in enumerate(messages) if m.get("role") == "user")
+            earlier = [m for m in messages[:last_user] if m.get("role") in ("user", "assistant")]
+            return self._reply(request, "History: %d messages: %s" % (
+                len(earlier), " | ".join(m["role"] + ": " + m.get("content", "") for m in earlier)))
+        return None
+
     def _tool_step(self, request, user):
         """A tool-calling reply, or None to fall through to the plain replies."""
         if not request.get("tools"):
@@ -134,6 +159,9 @@ class Handler(BaseHTTPRequestHandler):
         call = None
         if "LOOP" in user:
             call = ("list_files", {})
+        elif not results and "CALL" in words and words.index("CALL") + 2 < len(words):
+            i = words.index("CALL")
+            call = (words[i + 1], json.loads(" ".join(words[i + 2:])))
         elif not results and "SEARCH" in words and words.index("SEARCH") + 1 < len(words):
             call = ("search_code", {"query": words[words.index("SEARCH") + 1]})
         elif not results and "READ" in words and words.index("READ") + 1 < len(words):
@@ -149,9 +177,6 @@ class Handler(BaseHTTPRequestHandler):
         elif not results and "RANGE" in words and words.index("RANGE") + 3 < len(words):
             i = words.index("RANGE")
             call = ("read_file", {"path": words[i + 1], "startLine": int(words[i + 2]), "endLine": int(words[i + 3])})
-        elif "SYSTEM" in user:
-            system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
-            return self._reply(request, "System prompt was: " + system)
         if call:
             return self._reply(request, "", [{"function": {"name": call[0], "arguments": call[1]}}])
         if results:

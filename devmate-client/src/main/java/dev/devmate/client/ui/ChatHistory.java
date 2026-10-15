@@ -1,5 +1,6 @@
 package dev.devmate.client.ui;
 
+import dev.devmate.client.llm.LlmMessage;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
@@ -10,8 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.SessionScope;
 
 /**
- * The conversation shown to one browser session, newest last. Display only: each question is still sent to the model
- * on its own (multi-turn context arrives with the M3 agent). Capped so a long session can't grow without bound.
+ * The conversation shown to one browser session, newest last. Its questions and answers are also the memory sent
+ * with the next question ({@link #conversation()}). Capped so a long session can't grow without bound.
  */
 @Component
 @SessionScope
@@ -64,6 +65,24 @@ public class ChatHistory implements Serializable {
         while (entries.size() > MAX_ENTRIES) {
             entries.removeFirst();
         }
+    }
+
+    /**
+     * The questions and answers so far, oldest first, as context for the model. Errors are left out, and so is a
+     * question whose answer failed; the agent trims the rest to its limits.
+     */
+    public synchronized List<LlmMessage> conversation() {
+        var messages = new ArrayList<LlmMessage>();
+        for (int i = 0; i + 1 < entries.size(); i++) {
+            Entry question = entries.get(i);
+            Entry answer = entries.get(i + 1);
+            if (question.role() == Role.USER && answer.role() == Role.ASSISTANT) {
+                messages.add(LlmMessage.user(question.text()));
+                messages.add(LlmMessage.assistant(answer.text()));
+                i++;
+            }
+        }
+        return messages;
     }
 
     public synchronized void clear() {

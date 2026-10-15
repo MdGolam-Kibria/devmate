@@ -3,10 +3,10 @@
 The DevMate application you interact with: a **chat web UI** and **JSON API** in front of a configurable LLM
 (Anthropic Claude or local Ollama). It runs on **http://localhost:8083/** and opens in your browser on startup.
 
-> **MCP client (M2, done):** DevMate connects to any number of MCP servers, discovers their tools at runtime and calls
-> them, with or without an LLM (`/api/mcp`). **Ask about a folder:** open a folder in the UI and ask questions about
-> its code; the model gets the [files MCP server](../devmate-files-mcp/README.md)'s tools, pinned to that folder.
-> The tool-using agent itself is M3 (still ⚪); folder Q&A is a slice of it pulled forward on request.
+> **Agent (M3, done):** every question goes to the model together with the read-only tools that the MCP servers offer
+> right now (discovered, never hardcoded) and the conversation so far. The model picks tools, DevMate runs them
+> through its MCP client (M2), and the answer lists what was used. **Ask about a folder:** open a folder and the tools
+> are pinned to it. `/api/mcp` still calls tools with no LLM involved.
 
 ---
 
@@ -18,10 +18,13 @@ The DevMate application you interact with: a **chat web UI** and **JSON API** in
 | Markdown replies | `ui/MarkdownRenderer` | Lists, code, tables; raw HTML escaped, `javascript:` links removed |
 | Conversation history | `ui/ChatHistory` | Per browser session, last 100 messages, "New chat" clears it |
 | Open browser on startup | `ui/BrowserLauncher` | `xdg-open` / `open` / `rundll32`; off in tests and headless |
-| JSON chat API | `llm/ChatController` | `POST /api/chat` → reply + model + tokens + time |
+| **Agent (M3)** | `agent/DevMateAgent`, `agent/McpToolBridge` | Discovered read-only tools of every server → the model; scope (folder or none); conversation memory; unreachable servers drop out ([ADR-0005](../docs/decisions/ADR-0005-agent.md)) |
+| Agent JSON API | `agent/AgentController` | `POST /api/agent/ask {question, history?}` → reply, `toolsOffered`, `unavailableServers`, `toolCalls`, tokens, time |
+| Conversation memory | `ui/ChatHistory.conversation()`, `DevMateAgent.recent` | Newest question/answer pairs (12 messages / 16 000 chars), failed questions left out |
+| JSON chat API | `llm/ChatController` | `POST /api/chat` → plain model chat, no tools (provider check) |
 | **Ask about a folder** | `folder/FolderAssistant`, `ui/SelectedFolder`, `ui/FolderBrowser`, folder bar in `chat.html` | Click a folder in the picker (or type its path), ask; "Tools used (N)" under each answer |
 | Folder JSON API | `folder/FolderController` | `POST /api/folder/ask {folder, question}`, `GET /api/folder/roots` |
-| Folder scope | `folder/FolderScope` | Tool `path` pinned to the open folder; `../`, other roots, `/etc` refused |
+| Folder scope | `agent/FolderScope` | Tool `path` pinned to the open folder; `../`, other roots, `/etc` refused |
 | Approve any folder (popup) | `POST /folder/allow`, `FolderAssistant.allow`, `McpClientService.approveRoot` | Folder outside the server's roots → "Allow DevMate to read this folder?" → declared as an MCP root until DevMate restarts |
 | **MCP client (M2)** | `mcp/McpClientService` → `ToolRegistry`, `ToolExecutor` → `McpConnection` → `McpSession` → `McpTransport` | Official SDK, Streamable HTTP; several servers by config; lazy connect, re-initialize, reconnect; typed errors ([ADR-0004](../docs/decisions/ADR-0004-mcp-client.md)) |
 | MCP API (no LLM) | `mcp/McpController` | `GET /api/mcp/servers`, `GET /api/mcp/tools[?refresh=true]`, `POST /api/mcp/tools/{name}/call` |
@@ -78,11 +81,12 @@ POST /folder path=/home/me/shop   ChatPageController → FolderAssistant.open
                                   SelectedFolder (session) = real path
 
 POST /chat "Where is Kafka used?"  FolderAssistant.ask
-                                    ├─ list_files again (folder still allowed?), entries → system prompt
-                                    ├─ MCP tools/list → keep tools with readOnlyHint=true and a `path` parameter
-                                    ├─ folder_overview (if offered) → digest in the system prompt
-                                    │                   → LlmTool(name, description, inputSchema, handler)
-                                    └─ LlmClient.chat(system, question, tools, maxToolRounds=8)
+                                    ├─ list_files again (folder still allowed?), entries → folder context
+                                    ├─ folder_overview (if offered) → digest in the folder context
+                                    └─ DevMateAgent.ask(question, history, folder)
+                                         ├─ MCP tools/list → keep readOnlyHint=true tools with a `path` parameter
+                                         │                 → McpToolBridge → LlmTool(name, description, schema, handler)
+                                         └─ LlmClient.chat(system, history, question, tools, maxToolRounds=8)
                                          SpringAiLlmClient loop:
                                            model → tool call search_code {"query":"Kafka"}
                                            handler: FolderScope pins path to /home/me/shop (refuses ../, /etc)
@@ -91,8 +95,10 @@ POST /chat "Where is Kafka used?"  FolderAssistant.ask
                                   ChatHistory: answer + "Tools used (N)": each call → outcome · ms
 ```
 
-- **No tool is hard-coded in the agent's tool list.** It comes from `tools/list` on every question. DevMate offers
-  only tools that are read-only and take a `path`, because those are the ones it can pin to the folder. Two tools are
+- **No tool is hard-coded in the agent's tool list.** It comes from `tools/list` on every question. In a folder,
+  DevMate offers only tools that are read-only and take a `path`, because those are the ones it can pin to the folder.
+  Without a folder (`POST /chat` with none open, `/api/agent/ask`), every read-only tool of every reachable server is
+  offered unchanged, and the servers' own sandboxes are the boundary. Two tools are
   called by name: opening a folder uses `list_files`, and if the server offers `folder_overview` its result goes into
   the system prompt as a short digest (`42 files in 7 directories, 200 KB` · top file types · build/config files ·
   recently modified). So even a model that calls no tools knows what kind of project it's in.
@@ -195,7 +201,19 @@ IntelliJ: run `dev.devmate.client.DevMateClientApplication` with SDK `ms-25.0.4.
 ## Use
 
 - **UI:** type a question, press Enter. The badge shows provider/model; each answer shows tokens and time.
-- **API:**
+- **API (agent):**
+  ```bash
+  curl -s -X POST localhost:8083/api/agent/ask -H 'Content-Type: application/json' \
+    -d '{"question":"এই project-এ Kafka কোথায় ব্যবহার করা হয়েছে?"}' | jq '{reply, toolsOffered, toolCalls}'
+  # a conversation: send the earlier turns along (stateless API)
+  curl -s -X POST localhost:8083/api/agent/ask -H 'Content-Type: application/json' \
+    -d '{"question":"And where is it consumed?","history":[{"role":"user","text":"Where is Kafka produced?"},
+         {"role":"assistant","text":"In PaymentProducer.java"}]}' | jq .reply
+  ```
+  Status codes: 200 · 400 bad input (blank/too long question, history role other than `user`/`assistant`, more than
+  50 entries) · 415 not JSON · 502 model failed · 503 an MCP server broke down mid-answer. An unreachable server is
+  not an error: it is listed in `unavailableServers` and its tools are missing.
+- **API (plain chat, no tools):**
   ```bash
   curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' -d '{"message":"What is Kafka?"}'
   ```
@@ -223,7 +241,7 @@ java -jar devmate-client/target/devmate-client-0.1.0-SNAPSHOT.jar
 
 In the UI: **📁 Open a folder** → click `projects` → `shop` → **Open this folder** (or **Type a path instead**) → ask
 "Where is Kafka used in this project?". Expand **Tools used** under the answer to see what the model searched and
-read. **Close folder** goes back to plain chat. API:
+read. **Close folder** goes back to the general agent. API:
 
 ```bash
 curl -s -X POST localhost:8083/api/folder/ask -H 'Content-Type: application/json' \
@@ -274,6 +292,14 @@ LIVE=1 ./scripts/check-client.sh   # + 4 against your real Ollama (incl. a folde
 The example messages and expected results are in
 [docs/testing/UI-chat-test-cases.md](../docs/testing/UI-chat-test-cases.md). Try them by hand in the UI too.
 
+**Does the agent work (M3)?** 37 acceptance cases (+3 LIVE) against the packaged jars, the real files MCP server, a
+second MCP server and a deterministic fake model: [docs/testing/M3-agent-test-cases.md](../docs/testing/M3-agent-test-cases.md).
+
+```bash
+./scripts/check-agent.sh           # → "ALL 37 CASES PASSED"
+LIVE=1 ./scripts/check-agent.sh    # + the DoD question to your real Ollama (minutes on a CPU)
+```
+
 **Does the MCP client work (M2)?** 42 acceptance cases against the packaged jars, the real files MCP server and a
 misbehaving fake one, no LLM: [docs/testing/M2-mcp-client-test-cases.md](../docs/testing/M2-mcp-client-test-cases.md).
 
@@ -284,7 +310,7 @@ misbehaving fake one, no LLM: [docs/testing/M2-mcp-client-test-cases.md](../docs
 Maven suites:
 
 ```bash
-./mvnw -pl devmate-client verify                       # all client tests (99 unit + 72 IT)
+./mvnw -pl devmate-client verify                       # all client tests (110 unit + 78 IT)
 ./mvnw -pl devmate-client test -Dtest=MarkdownRendererTest
 ./mvnw -pl devmate-client verify -Dit.test=ChatPageIT
 DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT   # real Ollama call
@@ -292,16 +318,18 @@ DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT
 
 | Test | Proves |
 |---|---|
-| `ChatPageIT` | UI over real HTTP with a cookie-keeping client: send → answer shown, history per session, clear, HTML escaped, Markdown rendered, validation, error display, `SameSite=Strict`, no `jsessionid` in URLs |
+| `ChatPageIT` | UI over real HTTP with a cookie-keeping client: send → answer shown, history per session, clear, HTML escaped, Markdown rendered, validation, error display, `SameSite=Strict`, no `jsessionid` in URLs; conversation memory sent with later questions (errors left out, cleared by New chat); unreachable MCP server noted under the answer |
 | `ChatControllerIT` | `/api/chat` returns 200 / 400 / 502 with the right JSON |
 | `LlmProviderSwitchIT` | Anthropic config gives `AnthropicChatModel`, Ollama config gives `OllamaChatModel`; env model override works; missing key stops startup |
-| `SpringAiLlmClientTest` | Prompt order, blank system prompt dropped, token mapping, provider errors become `LlmException`; tool loop: results sent back, tokens summed, defaults kept, unknown tool, round limit |
+| `SpringAiLlmClientTest` | Prompt order (system, history, question), blank system prompt dropped, token mapping, provider errors become `LlmException`; tool loop: results sent back, tokens summed, defaults kept, unknown tool, round limit |
 | `FolderChatIT` | Folder bar, picker roots, folder browsing (home start, breadcrumb, hidden/files not listed, fallback on errors), open/refuse/close, answers with "Tools used", per-session folder, MCP outage, `/api/folder/ask` 200/400/403/404/502/503; approval popup only for "outside the allowed roots", Allow opens / explains the server setting |
 | `McpClientServiceIT` | Real Streamable HTTP against SDK MCP servers on embedded Tomcat (`TestMcpServer`): connect → initialize → discover → register → `search_code("Kafka")`; schemas + readOnly hint; cache until `list_changed`; several servers, priority on a clash, a down server not hiding the others; every error code (tool error, unknown/removed tool, client- and server-side invalid arguments, JSON-RPC error, not read-only, timeout keeping the session, connection refused, oversized answer not retried, expired session, restart); roots before/after connect, after reconnect, revoke |
 | `McpControllerIT` | `/api/mcp` through the whole app against a real MCP server + a down one: DoD call, server status, tool list, status code per error, 503 shape, bad names, 415 for form/text posts, 405 |
 | `ToolExecutorTest`, `ToolRegistryTest`, `McpConnectionTest`, `McpClientPropertiesTest` | Policy before network, schema check, JSON-RPC mapping, metric/MDC; cache versions, clash, lookup stops at the first server; failure classification through Reactor wrapping; config validation and priority order |
 | `HostHeaderFilterTest` | Foreign `Host` refused (DNS rebinding), loopback names pass |
-| `FolderAssistantTest` | Only read-only tools with `path` offered; arguments pinned to the folder; output cut off; server reasons passed through |
+| `AgentControllerIT` | M3 DoD over HTTP against a real MCP server + a down one: the Bangla question → mocked model selects `search_code` → real `tools/call` → answer; `toolsOffered` (no write tool), `unavailableServers`; history passed through; 400/415/502 |
+| `DevMateAgentTest` | General scope offers every read-only tool unchanged; folder scope offers path tools pinned; non-object arguments never sent; unreachable servers named, no tools → prompt says so; history trimmed to complete pairs and char budget; timer by scope/outcome; outage mid-answer aborts |
+| `FolderAssistantTest` | Through a real agent: only read-only tools with `path` offered; arguments pinned to the folder; output cut off; server reasons passed through; history forwarded |
 | `FolderScopeTest` | `..`, `/etc/passwd`, sibling folders with the same prefix refused; relative paths resolved |
 | `MarkdownRendererTest` | Formatting renders; `<script>`, `<img onerror>`, `<iframe>`, `javascript:` neutralised |
 | `BrowserLauncherTest` | Right command per OS; nothing on headless Linux |
@@ -317,4 +345,5 @@ rendered numbered list with tokens/time underneath. Then ask it to reply with `<
 the text and no popup.
 
 More: [developer guide](../docs/DEVELOPER-GUIDE.md) · [ADR-0003 (LLM design)](../docs/decisions/ADR-0003-model-agnostic-llm.md) ·
-[ADR-0004 (MCP client)](../docs/decisions/ADR-0004-mcp-client.md) · [M2](../docs/milestones/M2.md)
+[ADR-0004 (MCP client)](../docs/decisions/ADR-0004-mcp-client.md) · [ADR-0005 (agent)](../docs/decisions/ADR-0005-agent.md) ·
+[M2](../docs/milestones/M2.md) · [M3](../docs/milestones/M3.md)

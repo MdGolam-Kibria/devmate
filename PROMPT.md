@@ -269,7 +269,7 @@ Implement the project through these milestones:
 🔵 M0   Foundation
 🔵 M1   Files MCP Server
 🔵 M2   MCP Client
-⚪ M3   LLM Integration
+🔵 M3   LLM Integration
 ⚪ M4   Git MCP
 ⚪ M5   Code Intelligence
 ⚪ M6   RAG
@@ -524,7 +524,7 @@ This is the first major MCP milestone.
 
 ---
 
-# MILESTONE 3 — LLM INTEGRATION
+# 🔵 MILESTONE 3 — LLM INTEGRATION
 
 > **Amendment (2026-10-05):** DevMate must be able to use **any model**: hosted providers (Claude, OpenAI,
 > Google, Mistral, DeepSeek, Bedrock, Azure OpenAI, any OpenAI-compatible server) **and local Ollama models**

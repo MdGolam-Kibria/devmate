@@ -213,7 +213,7 @@ JAR_COOKIES="$WORK/cookies-folder"
 
 echo; echo "Folder Q&A (files MCP server + fake model)"
 p=$(curl -s -c "$JAR_COOKIES" -b "$JAR_COOKIES" "$BASE/")
-result UI-35 "no folder open → 'Open a folder' link, plain chat" "$(both "$(has "$p" 'No folder open: plain chat.')" "$(has "$p" 'Open a folder')")"
+result UI-35 "no folder open → 'Open a folder' link, general agent" "$(both "$(has "$p" 'No folder open: DevMate uses every tool')" "$(has "$p" 'Open a folder')")"
 p=$(curl -s -c "$JAR_COOKIES" -b "$JAR_COOKIES" "$BASE/folder")
 result UI-36 "picker with files MCP down → 'not reachable' message" "$(has "$p" "Files MCP server is not reachable at $MCP/mcp")"
 
@@ -313,7 +313,7 @@ start_mcp
 p=$(send "SEARCH KafkaTemplate")
 result UI-58 "files MCP restarted → DevMate reconnects without a restart" "$(grep -c 'OrderService.java' <<<"$p" | grep -qv '^0$' && echo true || echo false)"
 p=$(curl -s -L -c "$JAR_COOKIES" -b "$JAR_COOKIES" -X POST "$BASE/folder/close"; send "hello after close")
-result UI-59 "'Close folder' → back to plain chat (no tools sent)" \
+result UI-59 "'Close folder' → back to the general agent (folder no longer pinned)" \
     "$(both "$(has "$p" 'No folder open')" "$(has "$p" 'Echo: hello after close')")"
 leaks=$(grep -lE 'hunter2|KafkaTemplate<|class OrderService' "$WORK/app.log" "$WORK/mcp.log" 2>/dev/null)
 result UI-60 "logs never contain file contents, secrets or tool arguments" "$([[ -z $leaks ]] && echo true || echo false)" "$leaks"

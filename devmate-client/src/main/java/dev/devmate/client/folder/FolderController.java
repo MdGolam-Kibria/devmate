@@ -1,5 +1,7 @@
 package dev.devmate.client.folder;
 
+import dev.devmate.client.agent.DevMateAgent;
+import dev.devmate.client.agent.HistoryEntry;
 import dev.devmate.client.llm.LlmException;
 import dev.devmate.client.llm.LlmProperties;
 import dev.devmate.client.llm.LlmRequest;
@@ -21,16 +23,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** JSON API for asking about a folder (scripts, curl). Stateless: every request names its folder. */
+/**
+ * JSON API for asking about a folder (scripts, curl). Stateless: every request names its folder and may carry the
+ * conversation so far ({@code history}).
+ */
 @RestController
 @RequestMapping("/api/folder")
 public class FolderController {
 
     public record AskRequest(@NotBlank @Size(max = 4096) String folder,
-                             @NotBlank @Size(max = LlmRequest.MAX_USER_MESSAGE_LENGTH) String question) {}
+                             @NotBlank @Size(max = LlmRequest.MAX_USER_MESSAGE_LENGTH) String question,
+                             @Size(max = HistoryEntry.MAX_ENTRIES) List<@Valid HistoryEntry> history) {}
 
-    public record AskReply(String folder, String provider, String model, String reply, List<LlmToolCall> toolCalls,
-                           Integer inputTokens, Integer outputTokens, long durationMs) {}
+    public record AskReply(String folder, String provider, String model, String reply, List<String> toolsOffered,
+                           List<LlmToolCall> toolCalls, Integer inputTokens, Integer outputTokens, long durationMs) {}
 
     private final FolderAssistant folders;
     private final LlmProperties properties;
@@ -49,9 +55,11 @@ public class FolderController {
     @PostMapping("/ask")
     public AskReply ask(@Valid @RequestBody AskRequest request) {
         long start = System.nanoTime();
-        LlmResponse answer = folders.ask(request.folder().strip(), request.question().strip());
-        return new AskReply(request.folder().strip(), properties.provider(), answer.model(), answer.text(),
-                answer.toolCalls(), answer.inputTokens(), answer.outputTokens(),
+        DevMateAgent.Answer answer = folders.ask(request.folder().strip(), request.question().strip(),
+                HistoryEntry.toMessages(request.history()));
+        LlmResponse response = answer.response();
+        return new AskReply(request.folder().strip(), properties.provider(), response.model(), response.text(),
+                answer.toolsOffered(), response.toolCalls(), response.inputTokens(), response.outputTokens(),
                 (System.nanoTime() - start) / 1_000_000);
     }
 
@@ -81,6 +89,7 @@ public class FolderController {
     ResponseEntity<Map<String, String>> invalid(MethodArgumentNotValidException e) {
         return ResponseEntity.badRequest().body(Map.of("error", "INVALID_REQUEST",
                 "message", "folder (1-4096) and question (1-" + LlmRequest.MAX_USER_MESSAGE_LENGTH
-                        + " characters) are required"));
+                        + " characters) are required; history: at most " + HistoryEntry.MAX_ENTRIES
+                        + " entries of {role: user|assistant, text}"));
     }
 }

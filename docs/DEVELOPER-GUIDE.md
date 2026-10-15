@@ -14,8 +14,9 @@ design decisions see [docs/decisions](decisions).
 | ➕ | **LLM switch** (pulled forward from M3) | `devmate-client` talks to **Anthropic Claude** or **local Ollama**, chosen in `application.yml` |
 | ➕ | **Web UI** | Chat page at `http://localhost:8083/` (Thymeleaf), opens in your browser on startup |
 | 🔵 | **M2 MCP client** | Connects to any number of MCP servers, discovers and registers their tools, calls them; typed errors; `/api/mcp` works without an LLM |
-| ➕ | **Ask about a folder** (slice of M3) | Open a folder in the UI; the model reads/searches it through the files MCP server's tools |
-| ⚪ | M3 agent, … | Milestones still open: only the folder slice of the agent exists (no multi-turn memory) |
+| 🔵 | **M3 Agent** | Every question can use the read-only tools of all MCP servers (discovered, never hardcoded); conversation memory; `/api/agent/ask` |
+| ➕ | **Ask about a folder** | Open a folder in the UI; the agent's tools are pinned to it |
+| ⚪ | M4 Git MCP, … | Milestones still open |
 
 ```text
  Browser ──► devmate-client :8083 ──► LLM (Anthropic API  or  Ollama :11434)
@@ -126,7 +127,11 @@ only when that profile is active (`--spring.profiles.active=dev`, or "Active pro
 - Type a question and press **Enter** (Shift+Enter for a new line), or click a suggestion.
 - The badge at the top shows the active provider and model. Under each answer you see model, tokens and time.
 - **New chat** clears the conversation. History is per browser session, up to the last 100 messages.
-- Each question is answered on its own: the model does not remember earlier messages yet (that comes with the M3 agent).
+- The model remembers the conversation: the newest question/answer pairs (12 messages, 16 000 chars by default) are
+  sent with each question. Failed questions are not, and **New chat** starts over.
+- Without a folder open, the agent may use every read-only tool of the MCP servers, e.g. *"Where is Kafka used?"*
+  searches the files server's allowed folders. Under the answer, **Tools used** lists the calls. An unreachable server
+  is noted there ("unreachable MCP: files"), and the question is still answered without its tools.
 - The footer says where your text goes: local Ollama, or the hosted provider.
 
 ### 4.3a Ask questions about a folder
@@ -144,7 +149,8 @@ only when that profile is active (`--spring.profiles.active=dev`, or "Active pro
    `search_code`, `read_file`, `list_files`) with its outcome, e.g. `→ matches=3 filesScanned=40 truncated=false · 12 ms`,
    or `→ error: ACCESS_DENIED: …` in red. DevMate also puts a short folder overview (file counts, file types, build and
    config files, recently changed files) into the model's system prompt, so even a small model knows the project.
-5. **Close folder** returns to plain chat. The open folder is per browser session.
+5. **Close folder** returns to the general agent (tools no longer pinned to a folder). The open folder is per browser
+   session.
 
 **A folder outside the allowed roots** (every folder, when none are configured): opening it shows a popup, **"Allow
 DevMate to read this folder?"**. Click **Allow** and it opens (read-only, secrets still hidden) until DevMate

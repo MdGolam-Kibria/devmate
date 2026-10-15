@@ -16,18 +16,20 @@ User ──► DevMate Agent ──► LLM (tool selection)
 MCP is the protocol boundary between the agent and every external system. The client finds tools at runtime
 (`initialize` → `tools/list`) and never hardcodes them. The LLM receives the discovered tool definitions.
 
-## Current state (M2 + LLM, UI and folder Q&A slices)
+## Current state (M3: agent over the MCP client)
 
 ```text
 devmate/                       parent POM: Java 25, Boot 4.1.1, enforcer, test plugins
 ├── devmate-client/            Spring Boot (Web MVC on virtual threads) + Actuator
 │   └── dev.devmate.client
 │       ├── DevMateClientApplication
-│       ├── llm/                  LlmClient port (+ LlmTool) → SpringAiLlmClient (runs the tool loop)
+│       ├── agent/                DevMateAgent (ADR-0005): discovered read-only tools → LlmTools (McpToolBridge),
+│       │                         FolderScope, history trimming, system prompt; AgentController = /api/agent/ask
+│       ├── llm/                  LlmClient port (+ LlmTool, LlmMessage) → SpringAiLlmClient (runs the tool loop)
 │       ├── mcp/                  MCP client (ADR-0004): McpClientService facade → ToolRegistry + ToolExecutor →
 │       │                         McpConnection per server → McpSession → McpTransport (SDK, Streamable HTTP);
 │       │                         McpController = /api/mcp (servers, tools, call; no LLM)
-│       ├── folder/               FolderAssistant (MCP tools → LlmTools), FolderScope (path pinned to folder)
+│       ├── folder/               FolderAssistant (roots, open, approve, overview → folder context for the agent)
 │       ├── ui/                   Thymeleaf chat page, folder bar, session history + selected folder
 │       └── web/                  RequestIdFilter (correlation id → header + MDC), HostHeaderFilter (DNS rebinding)
 └── devmate-files-mcp/         MCP server, Streamable HTTP :8091/mcp (ADR-0002)
@@ -56,6 +58,11 @@ Runtime properties:
 MCP client flow (M2): `initialize` → `tools/list` (all servers, cached per session / `list_changed`) → registry
 (unique names, lower `priority` wins a clash) → `tools/call` after the read-only policy and a schema check of the
 arguments → `McpToolResult` or, when a server can't be used, `McpUnavailableException` (error codes in ADR-0004).
+
+Agent flow (M3): question (+ history) → `DevMateAgent` → `McpClientService.tools()` → read-only tools (in a folder:
+only those with a `path`, pinned by `FolderScope`) → `LlmTool`s → `LlmClient` (model ⇄ tool calls through
+`ToolExecutor`, at most `max-tool-rounds`) → answer + tools used. Unreachable servers drop out; the question is still
+answered.
 
 ## Module plan
 

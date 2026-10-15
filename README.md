@@ -12,7 +12,7 @@ systems (files, Git, code, and later DB, Kafka, OTel, Redis, Kubernetes) through
 | 🔵 | M0 — Foundation | [Done](docs/milestones/M0.md) |
 | 🔵 | M1 — Files MCP Server | [Done](docs/milestones/M1.md) |
 | 🔵 | M2 — MCP Client | [Done](docs/milestones/M2.md) |
-| ⚪ | M3 — LLM Integration | Not started |
+| 🔵 | M3 — LLM Integration | [Done](docs/milestones/M3.md) |
 | ⚪ | M4 — Git MCP | Not started |
 | ⚪ | M5 — Code Intelligence | Not started |
 | ⚪ | M6 — RAG | Not started |
@@ -46,7 +46,7 @@ Why these versions: [ADR-0001](docs/decisions/ADR-0001-technology-baseline.md), 
 
 | Module           | Milestone | Purpose                                                    |
 |------------------|-----------|------------------------------------------------------------|
-| `devmate-client`    | M0 | Spring Boot app: web UI, LLM access, the MCP client (M2: discovery, registry, execution, `/api/mcp`). Will host the agent (M3). |
+| `devmate-client`    | M0 | Spring Boot app: web UI, LLM access, the MCP client (M2: discovery, registry, execution, `/api/mcp`). M3: the agent (`/api/agent/ask`, the chat UI). |
 | `devmate-files-mcp` | M1 | MCP server (Streamable HTTP, `:8091/mcp`): `list_files`, `read_file`, `search_code`, sandboxed and read-only |
 
 Each future module (`devmate-git-mcp`, …) is added when its milestone starts.
@@ -106,17 +106,22 @@ It opens in your default browser automatically when the app starts (`DEVMATE_OPE
 
 - The badge shows the active provider and model. "New chat" clears the conversation.
 - Replies are rendered from Markdown (lists, code blocks, tables) with raw HTML escaped and unsafe links removed.
-- History lives in your browser session (last 100 messages). Each question is still sent to the model on its own;
-  conversation memory arrives with the M3 agent.
+- History lives in your browser session (last 100 messages). The newest question/answer pairs are sent with each
+  question (M3: `DEVMATE_AGENT_MAX_HISTORY_MESSAGES`, default 12; 0 = off).
+- **The agent (M3):** every question can use the read-only tools that the MCP servers offer, discovered at runtime.
+  With no folder open, that means every such tool, inside the servers' own sandboxes. With a folder open, only the
+  file tools, pinned to that folder. Each answer lists the tools it used.
 - The app listens on `127.0.0.1` by default (`DEVMATE_ADDRESS` to change). There is no login until M13, and the
   session cookie is `HttpOnly` + `SameSite=Strict`.
 
 When overriding from the command line, set **both** provider and model, e.g.
 `--devmate.llm.provider=ollama --devmate.llm.model=llama3.2:3b`. Otherwise the model from the active YAML block is kept.
 
-`/api/chat` (JSON) is plain chat to confirm a provider works.
+`POST /api/agent/ask {"question": "…", "history": [{"role": "user", "text": "…"}, …]}` (JSON) is the agent: the reply,
+`toolsOffered`, `unavailableServers` and `toolCalls` ([M3](docs/milestones/M3.md), [ADR-0005](docs/decisions/ADR-0005-agent.md)).
+`/api/chat` is plain chat with no tools, to confirm a provider works.
 
-**Ask about a folder** (slice of M2/M3, pulled forward on request): start `devmate-files-mcp`, then in the UI click **📁 Open a folder**, click through to any folder (click **Allow** in the
+**Ask about a folder**: start `devmate-files-mcp`, then in the UI click **📁 Open a folder**, click through to any folder (click **Allow** in the
 popup unless it's inside `DEVMATE_FILESYSTEM_ALLOWED_ROOTS`) and ask about its code. The model calls the server's tools (discovered via `tools/list`, pinned to that folder) and each
 answer lists the tools it used. JSON: `POST /api/folder/ask {"folder": "…", "question": "…"}`. See the
 [client README](devmate-client/README.md#ask-about-a-folder).

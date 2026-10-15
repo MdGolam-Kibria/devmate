@@ -1,4 +1,4 @@
-package dev.devmate.client.folder;
+package dev.devmate.client.agent;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,15 +40,14 @@ class FolderScopeTest {
             "/work/project/../other"})
     void pathsLeavingTheFolderAreRefused(String path) {
         assertThatThrownBy(() -> scope.apply(Map.of("path", path)))
-                .isInstanceOf(FolderException.class)
-                .hasMessageStartingWith("ACCESS_DENIED: path is outside the selected folder")
-                .extracting(e -> ((FolderException) e).reason()).isEqualTo("ACCESS_DENIED");
+                .isInstanceOf(ToolScopeException.class)
+                .hasMessageStartingWith("ACCESS_DENIED: path is outside the selected folder");
     }
 
     @Test
     void nonStringPathIsInvalid() {
         assertThatThrownBy(() -> scope.apply(Map.of("path", 42)))
-                .isInstanceOf(FolderException.class).hasMessage("INVALID_ARGUMENT: path must be a string");
+                .isInstanceOf(ToolScopeException.class).hasMessage("INVALID_ARGUMENT: path must be a string");
     }
 
     @Test

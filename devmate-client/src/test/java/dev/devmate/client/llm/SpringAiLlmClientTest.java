@@ -92,6 +92,25 @@ class SpringAiLlmClientTest {
                 .hasMessageContaining("returned no answer");
     }
 
+    @Test
+    void historyIsSentBetweenTheSystemPromptAndTheQuestion() {
+        when(chatModel.call(any(Prompt.class))).thenReturn(response("Rahim", "m", 1, 1));
+
+        client.chat(new LlmRequest("sys", List.of(LlmMessage.user("I am Rahim"), LlmMessage.assistant("Hi Rahim")),
+                "Who am I?", List.of(), 0));
+
+        var prompt = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel).call(prompt.capture());
+        assertThat(prompt.getValue().getInstructions()).satisfiesExactly(
+                m -> assertThat(m).isInstanceOf(SystemMessage.class),
+                m -> assertThat(m).isInstanceOfSatisfying(UserMessage.class,
+                        u -> assertThat(u.getText()).isEqualTo("I am Rahim")),
+                m -> assertThat(m).isInstanceOfSatisfying(AssistantMessage.class,
+                        a -> assertThat(a.getText()).isEqualTo("Hi Rahim")),
+                m -> assertThat(m).isInstanceOfSatisfying(UserMessage.class,
+                        u -> assertThat(u.getText()).isEqualTo("Who am I?")));
+    }
+
     // ── tool calling ─────────────────────────────────────────────────────────────────────────
 
     private final List<String> toolArguments = new ArrayList<>();

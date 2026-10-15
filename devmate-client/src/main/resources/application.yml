@@ -94,10 +94,12 @@ devmate.mcp:
       url: ${DEVMATE_FILES_MCP_URL:http://127.0.0.1:8091/mcp}
       priority: 10             # its file tools win over same-named tools of servers added later
       request-timeout: ${DEVMATE_FILES_MCP_TIMEOUT:30s}
-# Limits for tool-using answers.
+# Agent (M3, ADR-0005): limits for tool-using answers and conversation memory.
 devmate.agent:
   max-tool-rounds: ${DEVMATE_AGENT_MAX_TOOL_ROUNDS:8}
   max-tool-result-chars: ${DEVMATE_AGENT_MAX_TOOL_RESULT_CHARS:30000}
+  max-history-messages: ${DEVMATE_AGENT_MAX_HISTORY_MESSAGES:12}   # earlier questions + answers sent along; 0 = off
+  max-history-chars: ${DEVMATE_AGENT_MAX_HISTORY_CHARS:16000}
 
 ---
 management:

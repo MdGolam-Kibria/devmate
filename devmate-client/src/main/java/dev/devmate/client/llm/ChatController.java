@@ -14,8 +14,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Plain chat with the configured model, to confirm a provider works. No tools or agent yet: M3 replaces this with
- * the agent endpoint that uses discovered MCP tools.
+ * Plain chat with the configured model, without tools or history: confirms a provider works. The agent, which uses
+ * the discovered MCP tools, is {@code POST /api/agent/ask}.
  */
 @RestController
 @RequestMapping("/api/chat")

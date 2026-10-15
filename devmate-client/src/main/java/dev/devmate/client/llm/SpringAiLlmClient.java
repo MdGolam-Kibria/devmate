@@ -159,6 +159,10 @@ public class SpringAiLlmClient implements LlmClient {
         if (request.systemPrompt() != null && !request.systemPrompt().isBlank()) {
             messages.add(new SystemMessage(request.systemPrompt()));
         }
+        request.history().forEach(message -> messages.add(switch (message.role()) {
+            case USER -> new UserMessage(message.text());
+            case ASSISTANT -> new AssistantMessage(message.text());
+        }));
         messages.add(new UserMessage(request.userMessage()));
         return messages;
     }

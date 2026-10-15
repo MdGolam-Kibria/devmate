@@ -10,7 +10,7 @@ LIVE=1 ./scripts/check-client.sh     # + 4 cases against your real Ollama (llama
 KEEP=1 ./scripts/check-client.sh     # leave the app (and files MCP server) running on the fake model
 ```
 
-Last run: **2026-10-09: 89/89 PASS** (JDK 25). Negative check (2026-10-09): with the tool outcome left out of the
+Last run: **2026-10-16: 89/89 PASS** (JDK 25; M3: UI-35/UI-59 now expect the general agent). Earlier: **2026-10-09: 89/89 PASS**. Negative check (2026-10-09): with the tool outcome left out of the
 "Tools used" lines, UI-82 and UI-83 **fail**. The folder Q&A cases also passed with `LIVE=1` (64/64, before the
 approval cases were added).
 Negative checks: with `DEVMATE_ADDRESS=0.0.0.0 DEVMATE_LLM_MAX_ATTEMPTS=6` the script correctly **fails** UI-34
@@ -93,7 +93,7 @@ of the allowed roots), press **Open**, then ask. Under each answer, **Tools used
 
 | ID | Step / message | Expected |
 |---|---|---|
-| UI-35 | Open `/` | Folder bar says "No folder open: plain chat." with an **Open a folder** link |
+| UI-35 | Open `/` | Folder bar says "No folder open: DevMate uses every tool of its MCP servers…" with an **Open a folder** link (M3: the general agent) |
 | UI-36 | Click **Open a folder** while the files MCP server is stopped | "Files MCP server is not reachable at http://127.0.0.1:…/mcp" |
 | UI-37 | Same, server running | The allowed root (`…/ws`) is offered as a clickable chip |
 | UI-38 | Open `/etc` | `ACCESS_DENIED: path is outside the allowed roots`; no folder opened |
@@ -110,7 +110,7 @@ of the allowed roots), press **Open**, then ask. Under each answer, **Tools used
 | UI-52 | `SYSTEM` | The system prompt names the folder and lists `src/`, `README.md`; never `.env` |
 | UI-54 | Open `/` in a second browser | No folder open there (the folder is per session) |
 | UI-55 | `POST /api/folder/ask {"folder": "…/project", "question": "SEARCH KafkaTemplate"}` | 200 with `reply` and `toolCalls[0].name = search_code` |
-| UI-59 | Click **Close folder**, send `hello after close` | Back to plain chat: `Echo: hello after close` (no tools sent) |
+| UI-59 | Click **Close folder**, send `hello after close` | Back to the general agent (tools no longer pinned to the folder): `Echo: hello after close` |
 
 Security / misuse: the model must not get out of the folder, and the server's rules still apply:
 
