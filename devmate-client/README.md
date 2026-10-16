@@ -144,10 +144,10 @@ checked by DevMate before sending or rejected by the server), `TOOL_NOT_ALLOWED`
 ```yaml
 devmate:
   llm:
-    provider: anthropic                              # ← you change these two lines
-    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
-    # provider: ollama
-    # model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+    # provider: anthropic                            # ← you change these two lines
+    # model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
+    provider: ollama
+    model: ${DEVMATE_LLM_MODEL:qwen2.5:7b}
 ---
 spring:
   ai:
@@ -186,6 +186,7 @@ java -jar devmate-client/target/devmate-client-0.1.0-SNAPSHOT.jar
 | Open browser | `DEVMATE_OPEN_BROWSER` | `true` |
 | Model (either provider) | `DEVMATE_LLM_MODEL` | from the active block |
 | Ollama URL | `OLLAMA_BASE_URL` | `http://localhost:11434` |
+| Ollama context window (tokens) | `DEVMATE_LLM_NUM_CTX` | `32768` (Ollama's own 4096 silently cuts long tool results) |
 | Anthropic key | `ANTHROPIC_API_KEY` | none |
 | Attempts on provider error | `DEVMATE_LLM_MAX_ATTEMPTS` | `2` (Spring AI default 10 would hang minutes) |
 | Files MCP endpoint | `DEVMATE_FILES_MCP_URL` | `http://127.0.0.1:8091/mcp` |
@@ -275,7 +276,7 @@ and the server lets DevMate's connection read it. **Cancel** → nothing changes
 - If the server runs with the setting off (`false`), Allow says so ("did not accept the approval. Start it with
   DEVMATE_FILESYSTEM_ALLOW_CLIENT_ROOTS=true") and the approval is withdrawn.
 
-Small local models are slow with tools on CPU (llama3.2:3b took about 60 s for one search + answer) and sometimes
+Small local models are slow with tools on CPU (llama3.2:3b took about 60 s for one search + answer; the default qwen2.5:7b is slower but answers better) and sometimes
 skip the tool. Naming the tool in the question helps ("…use search_code"). Claude uses tools reliably.
 
 ---

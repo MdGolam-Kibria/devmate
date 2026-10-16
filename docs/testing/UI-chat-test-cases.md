@@ -6,7 +6,7 @@ exactly like a browser: form POST, redirect, session cookie, rendered HTML.
 
 ```bash
 ./scripts/check-client.sh            # 89 deterministic cases against a fake model (~60 s)
-LIVE=1 ./scripts/check-client.sh     # + 4 cases against your real Ollama (llama3.2:3b), a few minutes on CPU
+LIVE=1 ./scripts/check-client.sh     # + 4 cases against your real Ollama (qwen2.5:7b), a few minutes on CPU
 KEEP=1 ./scripts/check-client.sh     # leave the app (and files MCP server) running on the fake model
 ```
 

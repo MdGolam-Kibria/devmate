@@ -11,14 +11,14 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 /**
  * Real round trip to a local Ollama. Opt-in so builds never depend on a running model:
  * {@code DEVMATE_LIVE_OLLAMA=true ./mvnw -pl devmate-client verify -Dit.test=OllamaLiveIT}.
- * Model defaults to {@code llama3.2:3b}; override with {@code DEVMATE_LLM_MODEL}.
+ * Model defaults to {@code qwen2.5:7b}; override with {@code DEVMATE_LLM_MODEL}.
  */
 @EnabledIfEnvironmentVariable(named = "DEVMATE_LIVE_OLLAMA", matches = "true")
 class OllamaLiveIT {
 
     @Test
     void localOllamaAnswers() {
-        String model = System.getenv().getOrDefault("DEVMATE_LLM_MODEL", "llama3.2:3b");
+        String model = System.getenv().getOrDefault("DEVMATE_LLM_MODEL", "qwen2.5:7b");
         try (var context = new SpringApplicationBuilder(DevMateClientApplication.class)
                 .web(WebApplicationType.NONE)
                 .run("--devmate.llm.provider=ollama", "--devmate.llm.model=" + model)) {

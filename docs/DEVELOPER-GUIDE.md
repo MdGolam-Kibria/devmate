@@ -34,7 +34,7 @@ design decisions see [docs/decisions](decisions).
 |---|---|---|
 | JDK | **25** | `~/.jdks/ms-25.0.4.1`. The system `java` is 17, so always set `JAVA_HOME` |
 | Maven | 3.9+ | Use the wrapper `./mvnw` (pinned to 3.9.11); no install needed |
-| Ollama | any | Optional. `ollama serve`; models installed: `llama3.2:3b`, `qwen2.5-coder:1.5b`, `nomic-embed-text` |
+| Ollama | any | Optional. `ollama serve`; model installed: `qwen2.5:7b` (`ollama pull qwen2.5:7b`) |
 | Anthropic API key | | Optional. Only if you use the Anthropic block |
 | Docker | | Not needed yet |
 
@@ -73,12 +73,12 @@ Edit `devmate-client/src/main/resources/application.yml`. Exactly one block is a
 devmate:
   llm:
     # ── Option 1: Anthropic Claude. Needs env ANTHROPIC_API_KEY ──
-    provider: anthropic
-    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
+    # provider: anthropic
+    # model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
 
-    # ── Option 2: local Ollama (no API key) ──
-    # provider: ollama
-    # model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+    # ── Option 2 (ACTIVE): local Ollama (no API key) ──
+    provider: ollama
+    model: ${DEVMATE_LLM_MODEL:qwen2.5:7b}
 ```
 
 To switch, comment one block and uncomment the other. Keep the 4-space indentation under `llm:`.
@@ -87,10 +87,11 @@ To switch, comment one block and uncomment the other. Keep the 4-space indentati
 |---|---|
 | Claude | `export ANTHROPIC_API_KEY=sk-ant-…`. Without it, startup stops with a message telling you so |
 | Another Claude model | `DEVMATE_LLM_MODEL=claude-opus-5-5` |
-| Local Ollama | Uncomment the Ollama block; make sure `ollama serve` is running and the model is pulled (`ollama list`) |
-| Another Ollama model | `DEVMATE_LLM_MODEL=qwen2.5-coder:1.5b` |
+| Local Ollama | The active block; make sure `ollama serve` is running and the model is pulled (`ollama list`) |
+| Another Ollama model | `ollama pull llama3.1:8b`, then `DEVMATE_LLM_MODEL=llama3.1:8b` (it must make real tool calls: `qwen2.5-coder` types them as plain text in Ollama, so folder questions never read a file) |
+| Ollama context window | `DEVMATE_LLM_NUM_CTX` (default 32768; Ollama's own 4096 silently cuts long tool results) |
 | Ollama on another host | `OLLAMA_BASE_URL=http://host:11434` |
-| Switch without editing the file | `--devmate.llm.provider=ollama --devmate.llm.model=llama3.2:3b`. Set **both**, or the model from the active block stays |
+| Switch without editing the file | `--devmate.llm.provider=ollama --devmate.llm.model=qwen2.5:7b`. Set **both**, or the model from the active block stays |
 
 ### 4.2 Start it
 
@@ -161,7 +162,7 @@ server didn't accept the approval.
 The model can't leave the folder: `../`, other roots and `/etc/...` are refused with
 `ACCESS_DENIED: path is outside the selected folder`, and the server still hides `.env`, keys, `.git`, `target`.
 With Anthropic, file contents the tools return are sent to Anthropic (the footer says so); with Ollama nothing
-leaves the machine. Small local models are slow with tools on CPU (about 60 s for llama3.2:3b) and sometimes don't
+leaves the machine. Small local models are slow with tools on CPU (about 60 s for llama3.2:3b; a 7B model such as qwen2.5:7b is slower but answers better) and sometimes don't
 call a tool. Naming one in the question ("use search_code") helps.
 
 Same thing from a script:
@@ -177,7 +178,7 @@ curl -s localhost:8083/api/folder/roots          # folders the server allows
 ```bash
 curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' \
      -d '{"message":"In one sentence: what is Apache Kafka?"}'
-# {"provider":"ollama","model":"llama3.2:3b","reply":"…","inputTokens":35,"outputTokens":37,"durationMs":3954}
+# {"provider":"ollama","model":"qwen2.5:7b","reply":"…","inputTokens":35,"outputTokens":37,"durationMs":3954}
 ```
 
 | Status | Meaning |
@@ -354,7 +355,7 @@ ALL 35 CASES PASSED — the Files MCP server is working.
 | Port setting ignored | You added a second `server.port` in `application.yml`; the later `---` section wins. Use `DEVMATE_PORT` or edit the existing line |
 | `needs an API key: set the ANTHROPIC_API_KEY…` | Export the key, or switch to the Ollama block |
 | 502 `Connection refused` | Ollama isn't running: `ollama serve` |
-| 502 mentioning model not found | Model not pulled: `ollama pull llama3.2:3b`, or fix `DEVMATE_LLM_MODEL` |
+| 502 mentioning model not found | Model not pulled: `ollama pull qwen2.5:7b`, or fix `DEVMATE_LLM_MODEL` |
 | Badge shows `ollama / claude-…` | You overrode only the provider on the command line; also pass `--devmate.llm.model=` |
 | Answers are poor or wrong | Small local models (1.5–3B) are weak. Try a bigger model or Claude |
 | Browser didn't open | No desktop session, or `DEVMATE_OPEN_BROWSER=false`. Open the logged URL manually |

@@ -8,7 +8,7 @@ answer. The model must get the tools discovered through `tools/list`, with none 
 
 ```bash
 ./scripts/check-agent.sh            # → "ALL 37 CASES PASSED — DevMate's agent gives the model the discovered MCP tools, …"
-LIVE=1 ./scripts/check-agent.sh     # + LIVE-1…3: the DoD question to your real Ollama (llama3.2:3b), no keywords
+LIVE=1 ./scripts/check-agent.sh     # + LIVE-1…3: the DoD question to your real Ollama (qwen2.5:7b; `LIVE_MODEL=` to change), no keywords
 KEEP=1 ./scripts/check-agent.sh     # leave everything running afterwards
 ```
 

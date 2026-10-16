@@ -41,6 +41,16 @@ class LlmProviderSwitchIT {
             assertThat(context.getEnvironment().getProperty("spring.ai.ollama.chat.model")).isEqualTo("llama3.2:3b");
             assertThat(context.getEnvironment().getProperty("spring.ai.ollama.base-url"))
                     .isEqualTo("http://localhost:11434");
+            assertThat(((OllamaChatModel) context.getBean(ChatModel.class)).getOptions().getNumCtx())
+                    .as("Ollama's 4096 default would silently cut long tool results").isEqualTo(32768);
+        }
+    }
+
+    @Test
+    void ollamaContextWindowCanBeOverriddenByEnvironment() {
+        try (var context = start("--devmate.llm.provider=ollama", "--devmate.llm.model=llama3.2:3b",
+                "--DEVMATE_LLM_NUM_CTX=8192")) {
+            assertThat(((OllamaChatModel) context.getBean(ChatModel.class)).getOptions().getNumCtx()).isEqualTo(8192);
         }
     }
 

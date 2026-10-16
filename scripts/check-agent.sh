@@ -9,7 +9,7 @@
 # Prints PASS/FAIL per case.
 #
 #   scripts/check-agent.sh          # ~40 s
-#   LIVE=1 scripts/check-agent.sh   # also ask your real Ollama (llama3.2:3b) the DoD question, no keywords
+#   LIVE=1 scripts/check-agent.sh   # also ask your real Ollama (qwen2.5:7b) the DoD question, no keywords
 #                                   # (each live answer may take minutes on a CPU; LIVE_TIMEOUT=600 s)
 #   KEEP=1 scripts/check-agent.sh   # leave everything running afterwards
 #
@@ -305,7 +305,7 @@ result TC-37 "model failure → 502 LLM_UNAVAILABLE without stack traces" "$(all
 
 # ── live (optional) ───────────────────────────────────────────────────────────────────────────
 if [[ -n "${LIVE:-}" ]]; then
-    LIVE_MODEL=${LIVE_MODEL:-llama3.2:3b}
+    LIVE_MODEL=${LIVE_MODEL:-qwen2.5:7b}
     echo; echo "LIVE — real Ollama ($LIVE_MODEL), the DoD question without keywords; answers vary (CPU: minutes)"
     ASK_TIMEOUT=${LIVE_TIMEOUT:-600}
     if curl -sf -m 3 http://localhost:11434/api/tags >/dev/null; then

@@ -15,13 +15,13 @@ spring:
 # ─────────────────────────────────────────────────────────────────────────────
 devmate:
   llm:
-    # ── Option 1 (ACTIVE): Anthropic Claude. Needs env ANTHROPIC_API_KEY ──────
+    # ── Option 1: Anthropic Claude. Needs env ANTHROPIC_API_KEY ──────
 #    provider: anthropic
 #    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
 
-    # ── Option 2: local Ollama (no API key; ollama serve on localhost:11434) ──
+    # ── Option 2 (ACTIVE): local Ollama (no API key; ollama serve on localhost:11434) ──
      provider: ollama
-     model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+     model: ${DEVMATE_LLM_MODEL:qwen2.5:7b}
 
   ai:  # provider settings: endpoints and keys only, never secrets in this file
     anthropic:
@@ -56,6 +56,7 @@ spring:
       chat:
         model: ${devmate.llm.model}
         temperature: 0.1
+        num-ctx: ${DEVMATE_LLM_NUM_CTX:32768}  # Ollama's default (4096) silently cuts long tool results
 
 ---
 server:

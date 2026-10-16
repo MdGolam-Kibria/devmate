@@ -41,9 +41,10 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   Don't throw: Spring AI duplicates the message) → `service/` (no MCP types) → `access/` policy → validated `config/` record.
   Errors: `isError=true`, text `REASON: detail`. E2E ITs use the official SDK client (`McpClient.sync`).
 - LLM (ADR-0003, built in M3): agent depends only on DevMate's `LlmClient` port; one `SpringAiLlmClient` adapter covers all
-  providers; `devmate.llm.provider/model` is config only. `application.yml`: Anthropic block active
-  (`claude-sonnet-5-5`, env `ANTHROPIC_API_KEY`), Ollama block commented (`llama3.2:3b`; also installed:
-  `qwen2.5-coder:1.5b`, `nomic-embed-text`). `spring.ai.*` is derived from `devmate.llm.*`; edit only the top block.
+  providers; `devmate.llm.provider/model` is config only. `application.yml`: Ollama block active
+  (`qwen2.5:7b`, the only model installed; Core Ultra 7 155H, 30 GB RAM, no GPU → CPU only, 7–8B is the
+  practical ceiling), Anthropic block commented (`claude-sonnet-5-5`, env `ANTHROPIC_API_KEY`). Ollama context
+  `spring.ai.ollama.chat.num-ctx` = `DEVMATE_LLM_NUM_CTX` (32768): Ollama's 4096 default silently cut tool results. `spring.ai.*` is derived from `devmate.llm.*`; edit only the top block.
   `spring.ai.retry` is capped (`DEVMATE_LLM_MAX_ATTEMPTS`=2) because the default of 10 × 2 s·5 hangs the UI for minutes.
   `LlmCredentialsCheck` fails startup when a hosted provider has no key. Tests use a dummy key
   (`src/test/resources/application.properties`); `OllamaLiveIT` is opt-in (`DEVMATE_LIVE_OLLAMA=true`).
@@ -154,3 +155,9 @@ Node.js is not installed, so MCP Inspector is unavailable. Drive servers with th
   (+3 LIVE); regressions 89/42/56 green. Negative checks: 0.0.0.0 → TC-33, no read-only filter → TC-07/27, no folder
   scope → TC-11/29 FAIL. Live: llama3.2:3b picked `search_code` for the Bangla DoD question and answered in Bangla
   (1–4 min per answer on CPU).
+- 2026-10-16 — Local model (on request: llama3.2:3b answered poorly): default Ollama model → `qwen2.5:7b` (fits this
+  CPU-only PC). Tried `qwen2.5-coder:7b` first: LIVE-1/2 FAIL, it writes tool calls as plain-text JSON (3/3 direct
+  calls), so it was dropped; don't pick a coder variant for the agent. All other models removed (re-pull
+  nomic-embed-text for RAG in M6). Found: no `num-ctx` was set, so Ollama's 4096-token default truncated long prompts
+  → `DEVMATE_LLM_NUM_CTX` (32768). Client 110 unit + 79 IT (`LlmProviderSwitchIT` +1), `check-client.sh` 89/89,
+  `check-agent.sh` 37/37 and LIVE 40/40 with qwen2.5:7b (3/3 real tool calls); LIVE scripts default to it.

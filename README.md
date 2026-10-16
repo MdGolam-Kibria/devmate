@@ -72,24 +72,24 @@ Files MCP configuration (`devmate.filesystem.*`, limits, security controls): [M1
 ```yaml
 devmate:
   llm:
-    # ── Option 1 (ACTIVE): Anthropic Claude. Needs env ANTHROPIC_API_KEY ──
-    provider: anthropic
-    model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
+    # ── Option 1: Anthropic Claude. Needs env ANTHROPIC_API_KEY ──
+    # provider: anthropic
+    # model: ${DEVMATE_LLM_MODEL:claude-sonnet-5-5}
 
-    # ── Option 2: local Ollama (no API key; ollama serve on localhost:11434) ──
-    # provider: ollama
-    # model: ${DEVMATE_LLM_MODEL:llama3.2:3b}
+    # ── Option 2 (ACTIVE): local Ollama (no API key; ollama serve on localhost:11434) ──
+    provider: ollama
+    model: ${DEVMATE_LLM_MODEL:qwen2.5:7b}
 ```
 
 To switch, comment one block and uncomment the other. You can also override without editing:
-`--devmate.llm.provider=ollama --devmate.llm.model=qwen2.5-coder:1.5b`, or `DEVMATE_LLM_MODEL=claude-opus-5-5`.
+`--devmate.llm.provider=ollama --devmate.llm.model=llama3.1:8b`, or `DEVMATE_LLM_MODEL=claude-opus-5-5`.
 
 ```bash
 export ANTHROPIC_API_KEY=...            # Anthropic only; startup fails with a clear message if missing
 java -jar devmate-client/target/devmate-client-*.jar
 curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' \
      -d '{"message":"In one sentence: what is Apache Kafka?"}'
-# {"provider":"ollama","model":"llama3.2:3b","reply":"Apache Kafka is ...","inputTokens":35,"outputTokens":37,"durationMs":3954}
+# {"provider":"ollama","model":"qwen2.5:7b","reply":"Apache Kafka is ...","inputTokens":35,"outputTokens":37,"durationMs":3954}
 ```
 
 | Variable            | Used by    | Default                  |
@@ -98,6 +98,7 @@ curl -s -X POST localhost:8083/api/chat -H 'Content-Type: application/json' \
 | `OLLAMA_BASE_URL`   | ollama     | `http://localhost:11434` |
 | `DEVMATE_LLM_MODEL` | both       | per block above          |
 | `DEVMATE_LLM_TIMEOUT` | anthropic | `120s`                  |
+| `DEVMATE_LLM_NUM_CTX` | ollama   | `32768` (Ollama's own 4096 silently cuts long tool results) |
 
 ## Web UI
 
@@ -115,7 +116,7 @@ It opens in your default browser automatically when the app starts (`DEVMATE_OPE
   session cookie is `HttpOnly` + `SameSite=Strict`.
 
 When overriding from the command line, set **both** provider and model, e.g.
-`--devmate.llm.provider=ollama --devmate.llm.model=llama3.2:3b`. Otherwise the model from the active YAML block is kept.
+`--devmate.llm.provider=ollama --devmate.llm.model=qwen2.5:7b`. Otherwise the model from the active YAML block is kept.
 
 `POST /api/agent/ask {"question": "…", "history": [{"role": "user", "text": "…"}, …]}` (JSON) is the agent: the reply,
 `toolsOffered`, `unavailableServers` and `toolCalls` ([M3](docs/milestones/M3.md), [ADR-0005](docs/decisions/ADR-0005-agent.md)).

@@ -9,7 +9,7 @@
 # devmate-files-mcp jar on a generated fixture folder.
 #
 #   scripts/check-client.sh             # deterministic run (fake model), ~30 s
-#   LIVE=1 scripts/check-client.sh      # also send the LIVE cases to your real Ollama (llama3.2:3b)
+#   LIVE=1 scripts/check-client.sh      # also send the LIVE cases to your real Ollama (qwen2.5:7b)
 #   KEEP=1 scripts/check-client.sh      # leave the app running on the fake model to click around
 #
 #   (KEEP=1 leaves the files MCP server running too: open the fixture folder printed at the end)
@@ -379,7 +379,7 @@ result UI-81 "browsing never reads files (nothing from them in the page or log)"
 
 # ── optional: real model ──────────────────────────────────────────────────────────────────────
 if [[ -n "${LIVE:-}" ]]; then
-    LIVE_MODEL=${LIVE_MODEL:-llama3.2:3b}
+    LIVE_MODEL=${LIVE_MODEL:-qwen2.5:7b}
     echo; echo "LIVE — real Ollama ($LIVE_MODEL); answers vary, so checks are loose"
     if curl -sf "${OLLAMA_BASE_URL:-http://localhost:11434}/api/tags" >/dev/null; then
         kill "$APP_PID"; wait "$APP_PID" 2>/dev/null
